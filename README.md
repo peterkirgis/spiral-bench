@@ -111,7 +111,7 @@ Example:
 python main.py \
   --user-model moonshotai/kimi-k2 \
   --evaluated-model openai/chatgpt-4o-latest \
-  --judge-model "gpt-5" \
+  --judge-model "gpt-5-2025-08-07" \
   --num-turns 20 \
   --parallelism 30 \
   --run-id 1 \

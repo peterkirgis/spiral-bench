@@ -1,10 +1,6 @@
-Here’s a complete `README.md` draft for the `sycophancy-delusions-eval` benchmark repo, written so someone new to it can quickly understand what it is, how it works, and how to run it:
+# Spiral-Bench: Multiturn Evaluation for Sycophancy & Delusion Behaviours
 
----
-
-# Spiral-Bench — Multiturn Roleplay Evaluation for Sycophancy & Delusion Behaviours
-
-This repository contains the **Spiral-Bench** evaluation pipeline — a multiturn, roleplay-based benchmark designed to measure **protective** and **risky** behaviours in large language models (LLMs) when interacting with a suggestible, seeker-type user.
+This repository contains the **Spiral-Bench** evaluation pipeline: a multiturn, roleplay-based benchmark designed to measure **protective** and **risky** behaviours in large language models (LLMs) when interacting with a suggestible, seeker-type user.
 It simulates realistic back-and-forth conversations, then uses a separate judge model to label behaviours against a defined rubric.
 
 ---

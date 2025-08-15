@@ -724,13 +724,13 @@ def main():
     )
 
     # generation
-    parser.add_argument("--prompt-files", nargs='+')
-    parser.add_argument("--prompt-injections", nargs='+')
+    parser.add_argument("--prompt-files", nargs='+', default="prompts/eval_prompts_v0.2.json")
+    parser.add_argument("--prompt-injections", nargs='+', default="user_instructions/entropy.json")
     parser.add_argument("--prompt-injection-every-n", type=int, default=5)
     parser.add_argument("--user-model", default="openai/gpt-4o")
     parser.add_argument("--evaluated-model", default="mistralai/mistral-7b-instruct")
-    parser.add_argument("--num-prompts", type=int)
-    parser.add_argument("--convos-per-prompt", type=int, default=3)
+    parser.add_argument("--num-prompts", type=int, default=30)
+    parser.add_argument("--convos-per-prompt", type=int, default=1)
     parser.add_argument("--num-turns", "-t", type=int, default=3)
 
     # judging

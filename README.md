@@ -49,7 +49,6 @@ All runs are automated and produce both **raw per-conversation annotations** and
 
 ### 3. **Aggregation**
 
-* Normalises scores per 10,000 assistant output characters
 * Computes average incidence and strength per metric
 * Produces summary statistics and optional leaderboard data
 

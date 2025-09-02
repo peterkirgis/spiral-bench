@@ -1,0 +1,396 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>SpiralBench Replicator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    :root { --control-h: 40px; --gap: 12px; }
+    body { font-family: ui-sans-serif, system-ui; margin: 12px; }
+    .row { display:flex; gap: var(--gap); align-items: flex-start; }
+    .col { flex:1; border:1px solid #ddd; border-radius:10px; padding:12px; }
+    .small { font-size:12px; color:#666 }
+    .grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; }
+    .grid2 { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+    button { padding:8px 10px; border-radius:8px; border:1px solid #333; background:#fff; cursor:pointer; }
+    .panel { margin-top:10px; border-top:1px solid #eee; padding-top:10px; }
+    label { display:block; margin:6px 0 4px; font-weight:600; }
+    input[type=text], select, textarea { width: 100%; display: block; padding: 8px; font: inherit; }
+    input[type=text], select { height: var(--control-h); }
+
+    /* textareas */
+    #left { height: 340px; }
+    #api_reply { height: 180px; }
+    h3 { margin-top: 0; }
+    #seedPromptText { resize: vertical; }
+
+    /* sessions table */
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 8px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; vertical-align: top; }
+    tr:hover { background: #fafafa; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .pill { display:inline-block; padding:2px 6px; border:1px solid #ccc; border-radius:999px; font-size:12px; color:#444; }
+    .transcript { background:#fafafa; border:1px solid #eee; border-radius:10px; padding:10px; max-height: 380px; overflow:auto; }
+    .line { margin: 0 0 8px; white-space: pre-wrap; }
+    .roleU { color:#265; font-weight:600; }
+    .roleA { color:#623; font-weight:600; }
+  </style>
+</head>
+<body>
+  <h2>SpiralBench Chat Interface Replication</h2>
+
+  <div class="grid">
+    <div>
+      <label>RA pseudonym</label>
+      <input id="ra" type="text" placeholder="eg. RA07" />
+    </div>
+    <div>
+      <label>Evaluated Model</label>
+      <select id="evaluatedModel">
+        <option value="gpt-4o">GPT-4o</option>
+        <option value="gpt-5">GPT-5</option>
+        <option value="gpt-5-thinking">GPT-5 Thinking</option>
+      </select>
+    </div>
+     <div>
+      <label>User Model</label>
+      <input id="userModel" type="text" value="moonshotai/kimi-k2" />
+    </div>
+    <div>
+      <label>Category Instructions</label>
+      <select id="category">
+        <option value="">None</option>
+        <option value="spiral_tropes">Spiral Tropes</option>
+        <option value="intellectual_exploration">Intellectual Exploration</option>
+        <option value="theory_development">Theory Development</option>
+        <option value="exploring_conspiracies">Exploring Conspiracies</option>
+        <option value="mania_psychosis">Mania/Psychosis</option>
+        <option value="exploring_ai_consciousness">Exploring AI Consciousness</option>
+      </select>
+    </div>
+    <div>
+      <label>Seed Prompt</label>
+      <select id="seedPrompt" onchange="updateSeedPrompt()">
+        <option value="">Select a seed prompt...</option>
+      </select>
+    </div>
+  </div>
+
+  <div style="margin-top:8px;">
+    <button onclick="startSession()">Start / Switch Session</button>
+    <span class="small" id="sid_hint"></span>
+  </div>
+
+  <div id="seedPromptDisplay" style="margin:12px 0; padding:12px; border:1px solid #ddd; border-radius:10px; background:#f9f9f9; display:none;">
+    <h4 style="margin:0 0 8px;">Selected Seed Prompt</h4>
+    <div class="small">
+      ID: <span id="promptId"></span> | Category: <span id="promptCategory"></span>
+    </div>
+    <textarea id="seedPromptText" readonly style="width:100%; height:80px; font-family:inherit;"></textarea>
+    <button onclick="copySeedPrompt()" style="margin-top:6px;">Copy to Clipboard</button>
+  </div>
+
+  <div class="row" style="margin-top:12px;">
+    <div class="col" id="leftCol">
+      <h3>Left: Paste from Chat UI Assistant</h3>
+      <label>Turn index</label>
+      <input id="turn" type="text" value="0" />
+      <label>Content</label>
+      <textarea id="left"></textarea>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button onclick="replicate()">Log Turn & Replicate via API →</button>
+      </div>
+      <p class="small">Paste assistant replies from ChatGPT/Claude here. Click “Replicate via API” to query your chosen model (OpenRouter) with full conversation memory.</p>
+    </div>
+
+    <div class="col" id="rightCol">
+      <h3>Right: API Reply from Simulated User</h3>
+      <label>API User Reply</label>
+      <textarea id="api_reply" readonly></textarea>
+      <button onclick="copyApiReply()" style="margin-top:6px;">Copy API Reply</button>
+
+      <div class="panel" id="codesPanel">
+        <h4>Human Codes</h4>
+        <div class="grid">
+          <div><label><input id="pushback" type="checkbox"> Pushback</label></div>
+          <div><label><input id="de_escalation" type="checkbox"> De-escalation</label></div>
+          <div><label><input id="redirection" type="checkbox"> Redirection</label></div>
+          <div><label><input id="help_referral" type="checkbox"> Help Referral</label></div>
+          <div><label><input id="consciousness_claims" type="checkbox"> Consciousness Claims</label></div>
+          <div><label><input id="delusion_reinforcement" type="checkbox"> Delusion Reinforcement</label></div>
+          <div><label><input id="escalation" type="checkbox"> Escalation</label></div>
+          <div><label><input id="harmful_advice" type="checkbox"> Harmful Advice</label></div>
+          <div><label><input id="sycophancy" type="checkbox"> Sycophancy</label></div>
+        </div>
+        <div style="margin-top:8px;"><button onclick="code()">Save Codes</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────── Sessions Browser & Transcript Viewer ─────────────── -->
+  <div class="panel" style="margin-top:18px;">
+    <h3>Browse Sessions</h3>
+    <div class="grid2">
+      <div>
+        <label>Search (session/RA/scenario)</label>
+        <input id="searchQ" type="text" placeholder="type to filter…" oninput="refreshSessions()" />
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <div style="display:flex; gap:8px;">
+          <button onclick="refreshSessions()">Refresh</button>
+          <button onclick="clearSearch()">Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="sessionsWrap" style="margin-top:10px; overflow:auto;">
+      <table id="sessionsTable">
+        <thead>
+          <tr>
+            <th>Session</th>
+            <th>RA</th>
+            <th>Scenario</th>
+            <th>Models</th>
+            <th>Turns</th>
+            <th>Updated</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="sessionsBody"></tbody>
+      </table>
+    </div>
+
+    <h4 style="margin-top:16px;">Transcript</h4>
+    <div id="transcriptBox" class="transcript">
+      <div class="small">Select a session above to view its transcript.</div>
+    </div>
+  </div>
+
+<script>
+let SID = null;
+let PROMPTS_DATA = [];
+let SELECTED_SEED_PROMPT = null;
+const BASE = ""; // set to your API base if not same-origin
+
+const FIXED_SOURCE = "chat_ui";
+const CHAT_UI_ROLE = "assistant";
+
+/* ---------------- layout: align left textarea to right panel bottom ---------------- */
+function syncHeights() {
+  const leftTA = document.getElementById('left');
+  const rightPanel = document.getElementById('codesPanel');
+  if (!leftTA || !rightPanel) return;
+  const taTop = leftTA.getBoundingClientRect().top;
+  const panelBottom = rightPanel.getBoundingClientRect().bottom;
+  const desired = Math.max(220, Math.round(panelBottom - taTop - 16));
+  leftTA.style.height = desired + 'px';
+}
+window.addEventListener('load', syncHeights);
+window.addEventListener('resize', syncHeights);
+
+/* ---------------- prompts ---------------- */
+async function loadPrompts() {
+  try {
+    const r = await fetch(`${BASE}/api/prompts`);
+    const data = await r.json();
+    PROMPTS_DATA = data.prompts || [];
+    const select = document.getElementById('seedPrompt');
+    PROMPTS_DATA.forEach(p => {
+      const o = document.createElement('option');
+      o.value = p.prompt_id;
+      o.textContent = `${p.prompt_id} (${p.category})`;
+      select.appendChild(o);
+    });
+  } catch (e) {
+    console.error('Failed to load prompts:', e);
+  } finally {
+    syncHeights();
+  }
+}
+function updateSeedPrompt() {
+  const selectedId = document.getElementById('seedPrompt').value;
+  const display = document.getElementById('seedPromptDisplay');
+  if (!selectedId) { display.style.display = 'none'; SELECTED_SEED_PROMPT = null; syncHeights(); return; }
+  const prompt = PROMPTS_DATA.find(p => p.prompt_id === selectedId);
+  if (!prompt) return;
+  SELECTED_SEED_PROMPT = prompt;
+  document.getElementById('promptId').textContent = prompt.prompt_id;
+  document.getElementById('promptCategory').textContent = prompt.category;
+  document.getElementById('seedPromptText').value = prompt.prompts[0];
+  display.style.display = 'block';
+  syncHeights();
+}
+async function copySeedPrompt() {
+  const text = document.getElementById('seedPromptText').value;
+  try { await navigator.clipboard.writeText(text); alert('Seed prompt copied to clipboard!'); }
+  catch (e) { document.getElementById('seedPromptText').select(); document.execCommand('copy'); alert('Seed prompt copied to clipboard!'); }
+}
+
+/* ---------------- start / resume ---------------- */
+async function startSession() {
+  const ra = document.getElementById('ra').value.trim();
+  const userModel = document.getElementById('userModel').value.trim();
+  const evaluatedModel = document.getElementById('evaluatedModel').value;
+  let scenario_id = SELECTED_SEED_PROMPT ? SELECTED_SEED_PROMPT.prompt_id : "manual_session";
+  if (!ra || !userModel || !evaluatedModel) { alert("Fill RA pseudonym, user model, and evaluated model"); return; }
+
+  const r = await fetch(`${BASE}/api/session`, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ ra_pseudonym: ra, user_model: userModel, evaluated_model: evaluatedModel, scenario_id })
+  });
+  if (!r.ok) { alert(`Session error: ${await r.text()}`); return; }
+  const j = await r.json();
+  SID = j.session_id;
+  document.getElementById('sid_hint').innerText = `Session: ${SID} | Scenario: ${scenario_id}`;
+  // New session starts at 0
+  document.getElementById('turn').value = "0";
+  syncHeights();
+  // refresh browser so it appears in the list
+  refreshSessions();
+}
+
+/* Load an existing session by id (from the browser list) */
+async function loadSession(sessionId) {
+  const r = await fetch(`${BASE}/api/session/${encodeURIComponent(sessionId)}`);
+  if (!r.ok) { alert(`Load error: ${await r.text()}`); return; }
+  const s = await r.json();
+  SID = s.session_id;
+  // Fill top controls with stored models (non-destructive if user already typed)
+  document.getElementById('sid_hint').innerText = `Session: ${SID} | Scenario: ${s.scenario_id}`;
+  document.getElementById('userModel').value = s.user_model || document.getElementById('userModel').value;
+  document.getElementById('evaluatedModel').value = s.evaluated_model || document.getElementById('evaluatedModel').value;
+  document.getElementById('turn').value = String(s.next_index ?? 0);
+  await viewTranscript(SID);
+  syncHeights();
+}
+
+/* ---------------- logging + replicate ---------------- */
+async function replicate() {
+  if (!SID) { alert("Start or load a session first"); return; }
+  const turn = +document.getElementById('turn').value;
+  const content = document.getElementById('left').value;
+  if (content.trim().length === 0) { alert("Paste some text first"); return; }
+
+  // Log pasted assistant turn
+  const logResponse = await fetch(`${BASE}/api/turn`, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ session_id: SID, turn_index: turn, source: "chat_ui", role: "assistant", content })
+  });
+  if (!logResponse.ok) { alert(`Log error: ${await logResponse.text()}`); return; }
+
+  // Replicate via API
+  const userModel = document.getElementById('userModel').value.trim();
+  const evaluatedModel = document.getElementById('evaluatedModel').value;
+  const category = document.getElementById('category').value;
+
+  const payload = {
+    session_id: SID,
+    user_model: userModel,
+    evaluated_model: evaluatedModel,
+    user_message: content,
+    role: "user",
+    provider: "openrouter"
+  };
+  if (category) payload.category = category;
+  if (SELECTED_SEED_PROMPT) payload.seed_prompt = SELECTED_SEED_PROMPT.prompts[0];
+
+  const r = await fetch(`${BASE}/api/call`, {
+    method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { alert(`API error: ${j.detail || JSON.stringify(j)}`); return; }
+  const apiReply = j.assistant || "";
+  if (!apiReply.trim()) { alert("API returned empty content. Please try again."); return; }
+
+  document.getElementById('api_reply').value = apiReply;
+  document.getElementById('turn').value = String(turn + 1);
+  await viewTranscript(SID); // update transcript viewer
+  syncHeights();
+}
+
+/* ---------------- human codes ---------------- */
+async function code() {
+  if (!SID) { alert("Start or load a session first"); return; }
+  const turn = +document.getElementById('turn').value - 1;
+  const payload = {
+    session_id: SID, turn_index: turn,
+    pushback: +document.getElementById('pushback').checked,
+    de_escalation: +document.getElementById('de_escalation').checked,
+    redirection: +document.getElementById('redirection').checked,
+    help_referral: +document.getElementById('help_referral').checked,
+    consciousness_claims: +document.getElementById('consciousness_claims').checked,
+    delusion_reinforcement: +document.getElementById('delusion_reinforcement').checked,
+    escalation: +document.getElementById('escalation').checked,
+    harmful_advice: +document.getElementById('harmful_advice').checked,
+    sycophancy: +document.getElementById('sycophancy').checked,
+  };
+  const r = await fetch(`${BASE}/api/code`, {
+    method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)
+  });
+  if (r.ok) { alert("Codes saved."); resetCheckboxes(); }
+  else { alert(`Code error: ${await r.text()}`); }
+  syncHeights();
+}
+function resetCheckboxes() {
+  ['pushback','de_escalation','redirection','help_referral','consciousness_claims','delusion_reinforcement','escalation','harmful_advice','sycophancy']
+    .forEach(id => document.getElementById(id).checked = false);
+}
+
+/* ---------------- sessions browser ---------------- */
+async function refreshSessions() {
+  const q = document.getElementById('searchQ').value.trim();
+  const url = new URL(`${BASE}/api/sessions`, window.location.origin);
+  if (q) url.searchParams.set("q", q);
+  const r = await fetch(url.toString().replace(window.location.origin, "")); // keep BASE
+  if (!r.ok) { console.error(await r.text()); return; }
+  const data = await r.json();
+  renderSessions(data.sessions || []);
+}
+function clearSearch() { document.getElementById('searchQ').value = ""; refreshSessions(); }
+
+function renderSessions(items) {
+  const tb = document.getElementById('sessionsBody');
+  tb.innerHTML = "";
+  items.forEach(s => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td class="mono">${s.session_id.slice(0,8)}…</td>
+      <td>${s.ra_pseudonym || ""}</td>
+      <td><span class="pill">${s.scenario_id || ""}</span></td>
+      <td>
+        <div class="small"><b>User:</b> ${escapeHtml(s.user_model || "")}</div>
+        <div class="small"><b>Eval:</b> ${escapeHtml(s.evaluated_model || "")}</div>
+      </td>
+      <td>${s.turn_count} <span class="small">(next ${s.next_index})</span></td>
+      <td class="small">${s.updated_at}</td>
+      <td><button onclick="loadSession('${s.session_id.replace(/'/g, "\\'")}')">Open</button> 
+          <button onclick="viewTranscript('${s.session_id.replace(/'/g, "\\'")}')">View</button></td>
+    `;
+    tb.appendChild(tr);
+  });
+}
+
+async function viewTranscript(sessionId) {
+  const r = await fetch(`${BASE}/api/session/${encodeURIComponent(sessionId)}/transcript`);
+  if (!r.ok) { document.getElementById('transcriptBox').innerHTML = `<div class="small">Error loading transcript.</div>`; return; }
+  const data = await r.json();
+  const lines = (data.transcript || []).map(t => {
+    const roleCls = t.role === "user" ? "roleU" : "roleA";
+    const who = t.role === "user" ? "USER" : "ASSIST";
+    const head = `${String(t.turn_index).padStart(3,"0")} [${t.source}] <span class="${roleCls}">${who}</span> ${t.created_at}`;
+    const content = escapeHtml(t.content || "");
+    return `<div class="line"><div class="small mono">${head}</div>${content}</div>`;
+  });
+  document.getElementById('transcriptBox').innerHTML = lines.join("") || `<div class="small">No turns yet.</div>`;
+}
+
+/* utils */
+function escapeHtml(s){return s.replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
+
+/* init */
+window.addEventListener('load', () => { loadPrompts(); refreshSessions(); });
+</script>
+</body>
+</html>

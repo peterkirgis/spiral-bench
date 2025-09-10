@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import httpx
+from fastapi.staticfiles import StaticFiles
 
 # --- Vendor SDKs you already used ---
 from openai import OpenAI
@@ -68,6 +69,8 @@ app.add_middleware(
 )
 
 DB = os.getenv("DB_PATH", "spiralbench.db")
+db_dir = os.path.dirname(DB) or "."
+Path(db_dir).mkdir(parents=True, exist_ok=True)
 
 def init_db():
     with sqlite3.connect(DB) as con:

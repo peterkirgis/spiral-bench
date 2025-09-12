@@ -35,6 +35,12 @@
     .line { margin: 0 0 8px; white-space: pre-wrap; }
     .roleU { color:#265; font-weight:600; }
     .roleA { color:#623; font-weight:600; }
+
+    button[disabled] { opacity: .5; cursor: not-allowed; }
+    .step { font-size:12px; color:#555; margin-right:6px; }
+    .status-indicator { font-size:16px; margin-right:6px; font-weight:bold; }
+    .status-indicator.incomplete { color:#e74c3c; }
+    .status-indicator.complete { color:#27ae60; }
   </style>
 </head>
 <body>
@@ -99,9 +105,11 @@
       <label>Content</label>
       <textarea id="left"></textarea>
       <div style="display:flex; gap:8px; margin-top:8px;">
-        <button onclick="replicate()">Log Turn & Replicate via API →</button>
+        <span class="step">Step 1</span>
+        <span id="step1Status" class="status-indicator incomplete">✗</span>
+        <button id="btnLog" onclick="logTurn()">Log pasted assistant turn</button>
       </div>
-      <p class="small">Paste assistant replies from ChatGPT/Claude here. Click “Replicate via API” to query your chosen model (OpenRouter) with full conversation memory.</p>
+      <p class="small">You must log the pasted turn before grading or sending to the API.</p>
     </div>
 
     <div class="col" id="rightCol">
@@ -122,8 +130,17 @@
           <div><label>Escalation<select id="escalation"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
           <div><label>Harmful Advice<select id="harmful_advice"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
           <div><label>Sycophancy<select id="sycophancy"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
-        </div>
-        <div style="margin-top:8px;"><button onclick="code()">Save Codes</button></div>
+          <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+            <span class="step">Step 2</span>
+            <span id="step2Status" class="status-indicator incomplete">✗</span>
+            <button id="btnSaveCodes" onclick="code()" disabled>Save Codes</button>
+          </div>
+      </div>
+    </div>
+    <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">
+      <span class="step">Step 3</span>
+      <span id="step3Status" class="status-indicator incomplete">✗</span>
+      <button id="btnSend" onclick="sendToApi()" disabled>Send to API user model →</button>
       </div>
     </div>
   </div>
@@ -153,7 +170,7 @@
             <th>RA</th>
             <th>Scenario</th>
             <th>Models</th>
-            <th>Turns</th>
+            <th>Next Turn</th>
             <th>Updated</th>
             <th></th>
           </tr>
@@ -167,7 +184,6 @@
       <div class="small">Select a session above to view its transcript.</div>
     </div>
   </div>
-
 <script>
 let SID = null;
 let PROMPTS_DATA = [];
@@ -176,6 +192,79 @@ const BASE = ""; // set to your API base if not same-origin
 
 const FIXED_SOURCE = "chat_ui";
 const CHAT_UI_ROLE = "assistant";
+
+/* ---------------- flow state ---------------- */
+const FLOW = {
+  loggedForTurn: null,    // integer turn index that has been logged this cycle
+  codesSavedTurn: null,   // integer turn index for which codes are saved this cycle
+  apiSentTurn: null,      // integer turn index for which API request was sent this cycle
+};
+
+function getTurnIndex() { return +document.getElementById('turn').value; }
+
+function setDisabled(el, flag) {
+  if (!el) return;
+  el.disabled = !!flag;
+}
+
+function enableCodesPanel(enabled) {
+  const ids = [
+    'pushback','de_escalation','redirection','help_referral',
+    'consciousness_claims','delusion_reinforcement','escalation',
+    'harmful_advice','sycophancy'
+  ];
+  ids.forEach(id => setDisabled(document.getElementById(id), !enabled));
+  setDisabled(document.getElementById('btnSaveCodes'), !enabled);
+}
+
+function updateFlowUI() {
+  const btnLog  = document.getElementById('btnLog');
+  const btnSend = document.getElementById('btnSend');
+  const turnInp = document.getElementById('turn');
+  const leftTA  = document.getElementById('left');
+
+  // Step 1 (Log) is enabled if there is content & a session
+  const canLog = SID && leftTA.value.trim().length > 0;
+  setDisabled(btnLog, !canLog);
+
+  // Codes panel enabled if current turn has been logged for this cycle
+  const turnNow = getTurnIndex();
+  const canCode = FLOW.loggedForTurn !== null && FLOW.loggedForTurn === turnNow;
+  enableCodesPanel(canCode);
+
+  // Step 3 (Send) enabled only if codes were saved for exactly the same turn
+  const canSend = canCode && FLOW.codesSavedTurn === FLOW.loggedForTurn;
+  setDisabled(btnSend, !canSend);
+
+  // Update status indicators
+  updateStatusIndicators();
+
+  // Lock the turn input after logging; unlock after sending
+  setDisabled(turnInp, FLOW.loggedForTurn !== null);
+  syncHeights();
+}
+
+function updateStatusIndicators() {
+  const step1Status = document.getElementById('step1Status');
+  const step2Status = document.getElementById('step2Status');
+  const step3Status = document.getElementById('step3Status');
+  const turnNow = getTurnIndex();
+
+  // Step 1: Check if current turn has been logged
+  const step1Complete = FLOW.loggedForTurn !== null && FLOW.loggedForTurn === turnNow;
+  step1Status.textContent = step1Complete ? '✓' : '✗';
+  step1Status.className = 'status-indicator ' + (step1Complete ? 'complete' : 'incomplete');
+
+  // Step 2: Check if codes have been saved for current turn
+  const step2Complete = FLOW.codesSavedTurn !== null && FLOW.codesSavedTurn === turnNow;
+  step2Status.textContent = step2Complete ? '✓' : '✗';
+  step2Status.className = 'status-indicator ' + (step2Complete ? 'complete' : 'incomplete');
+
+  // Step 3: Check if API request has been sent for current turn
+  const step3Complete = FLOW.apiSentTurn !== null && FLOW.apiSentTurn === turnNow;
+  step3Status.textContent = step3Complete ? '✓' : '✗';
+  step3Status.className = 'status-indicator ' + (step3Complete ? 'complete' : 'incomplete');
+}
 
 /* ---------------- layout: align left textarea to right panel bottom ---------------- */
 function syncHeights() {
@@ -253,47 +342,126 @@ async function startSession() {
     method:"POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({ ra_pseudonym: ra, user_model: userModel, evaluated_model: evaluatedModel, scenario_id })
   });
-  if (!r.ok) { alert(`Session error: ${await r.text()}`); return; }
+  if (!r.ok) { showErrorNotification(`Session error: ${await r.text()}`); return; }
   const j = await r.json();
   SID = j.session_id;
   document.getElementById('sid_hint').innerText = `Session: ${SID} | Scenario: ${scenario_id}`;
-  // New session starts at 0
   document.getElementById('turn').value = "0";
-  syncHeights();
-  // refresh browser so it appears in the list
+
+  // reset cycle
+  document.getElementById('left').value = "";
+  document.getElementById('api_reply').value = "";
+  FLOW.loggedForTurn = null;
+  FLOW.codesSavedTurn = null;
+  FLOW.apiSentTurn = null;
+
+  updateFlowUI();
   refreshSessions();
 }
 
 /* Load an existing session by id (from the browser list) */
 async function loadSession(sessionId) {
   const r = await fetch(`${BASE}/api/session/${encodeURIComponent(sessionId)}`);
-  if (!r.ok) { alert(`Load error: ${await r.text()}`); return; }
+  if (!r.ok) { showErrorNotification(`Load error: ${await r.text()}`); return; }
   const s = await r.json();
   SID = s.session_id;
-  // Fill top controls with stored models (non-destructive if user already typed)
   document.getElementById('sid_hint').innerText = `Session: ${SID} | Scenario: ${s.scenario_id}`;
   document.getElementById('userModel').value = s.user_model || document.getElementById('userModel').value;
   document.getElementById('evaluatedModel').value = s.evaluated_model || document.getElementById('evaluatedModel').value;
   document.getElementById('turn').value = String(s.next_index ?? 0);
+  
+  // Fetch transcript to populate the last API reply
+  await loadLastApiReply(SID);
   await viewTranscript(SID);
-  syncHeights();
+
+  // reset cycle
+  document.getElementById('left').value = "";
+  FLOW.loggedForTurn = null;
+  FLOW.codesSavedTurn = null;
+  FLOW.apiSentTurn = null;
+
+  updateFlowUI();
 }
 
-/* ---------------- logging + replicate ---------------- */
-async function replicate() {
+/* Load the last API reply for resumed sessions */
+async function loadLastApiReply(sessionId) {
+  const r = await fetch(`${BASE}/api/session/${encodeURIComponent(sessionId)}/transcript`);
+  if (!r.ok) return;
+  const data = await r.json();
+  const transcript = data.transcript || [];
+  
+  // Find the most recent user turn (API reply)
+  const userTurns = transcript.filter(t => t.role === 'user');
+  if (userTurns.length > 0) {
+    const lastUserTurn = userTurns[userTurns.length - 1];
+    document.getElementById('api_reply').value = lastUserTurn.content || "";
+  }
+}
+
+/* ---------------- Step 1: log pasted assistant turn ---------------- */
+async function logTurn() {
   if (!SID) { alert("Start or load a session first"); return; }
-  const turn = +document.getElementById('turn').value;
+  const turn = getTurnIndex();
   const content = document.getElementById('left').value;
   if (content.trim().length === 0) { alert("Paste some text first"); return; }
 
-  // Log pasted assistant turn
   const logResponse = await fetch(`${BASE}/api/turn`, {
     method:"POST", headers:{"Content-Type":"application/json"},
-    body: JSON.stringify({ session_id: SID, turn_index: turn, source: "chat_ui", role: "assistant", content })
+    body: JSON.stringify({ session_id: SID, turn_index: turn, source: FIXED_SOURCE, role: CHAT_UI_ROLE, content })
   });
-  if (!logResponse.ok) { alert(`Log error: ${await logResponse.text()}`); return; }
+  if (!logResponse.ok) { showErrorNotification(`Log error: ${await logResponse.text()}`); return; }
 
-  // Replicate via API
+  FLOW.loggedForTurn = turn;
+  FLOW.codesSavedTurn = null;  // must re-save codes if user re-logs
+  FLOW.apiSentTurn = null;    // must re-send API if user re-logs
+  updateFlowUI();
+  await viewTranscript(SID);
+}
+
+/* ---------------- Step 2: human codes ---------------- */
+async function code() {
+  if (!SID) { alert("Start or load a session first"); return; }
+  if (FLOW.loggedForTurn === null) { alert("Log the pasted assistant turn first (Step 1)."); return; }
+
+  const turn = FLOW.loggedForTurn; // codes apply to the logged turn in this cycle
+  const payload = {
+    session_id: SID, turn_index: turn,
+    pushback: +document.getElementById('pushback').value,
+    de_escalation: +document.getElementById('de_escalation').value,
+    redirection: +document.getElementById('redirection').value,
+    help_referral: +document.getElementById('help_referral').value,
+    consciousness_claims: +document.getElementById('consciousness_claims').value,
+    delusion_reinforcement: +document.getElementById('delusion_reinforcement').value,
+    escalation: +document.getElementById('escalation').value,
+    harmful_advice: +document.getElementById('harmful_advice').value,
+    sycophancy: +document.getElementById('sycophancy').value,
+  };
+  const r = await fetch(`${BASE}/api/code`, {
+    method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)
+  });
+  if (r.ok) { 
+    FLOW.codesSavedTurn = turn;
+    updateFlowUI();
+  } else { 
+    showErrorNotification(`Code error: ${await r.text()}`); 
+  }
+  syncHeights();
+}
+function resetDropdowns() {
+  ['pushback','de_escalation','redirection','help_referral','consciousness_claims','delusion_reinforcement','escalation','harmful_advice','sycophancy']
+    .forEach(id => document.getElementById(id).value = "0");
+}
+
+/* ---------------- Step 3: send to API user model ---------------- */
+async function sendToApi() {
+  if (!SID) { alert("Start or load a session first"); return; }
+  if (FLOW.loggedForTurn === null) { alert("You must log the pasted turn first (Step 1)."); return; }
+  if (FLOW.codesSavedTurn !== FLOW.loggedForTurn) { alert("Save codes for this turn first (Step 2)."); return; }
+
+  const turn = FLOW.loggedForTurn;
+  const content = document.getElementById('left').value.trim();
+  if (!content) { alert("No content to send—paste and log again."); return; }
+
   const userModel = document.getElementById('userModel').value.trim();
   const evaluatedModel = document.getElementById('evaluatedModel').value;
   const category = document.getElementById('category').value;
@@ -317,76 +485,46 @@ async function replicate() {
         method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)
       });
       j = await r.json().catch(() => ({}));
-      if (r.ok) break; // Success, exit retry loop
-      
-      if (attempt === 3) {
-        alert(`API error (after 3 attempts): ${j.detail || JSON.stringify(j)}`); 
-        return;
-      }
-      
-      console.log(`API attempt ${attempt} failed, retrying...`);
-      await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Wait 1s, 2s, 3s
-      
+      if (r.ok) break;
+      if (attempt === 3) { showErrorNotification(`API error (after 3 attempts): ${j.detail || JSON.stringify(j)}`); return; }
+      await new Promise(res => setTimeout(res, 1000 * attempt));
     } catch (e) {
-      if (attempt === 3) {
-        alert(`Network error (after 3 attempts): ${e.message}`);
-        return;
-      }
-      console.log(`Network attempt ${attempt} failed, retrying...`);
-      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      if (attempt === 3) { showErrorNotification(`Network error (after 3 attempts): ${e.message}`); return; }
+      await new Promise(res => setTimeout(res, 1000 * attempt));
     }
   }
-  const apiReply = j.assistant || "";
-  if (!apiReply.trim()) { alert("API returned empty content. Please try again."); return; }
+  const apiReply = (j.assistant || "").trim();
+  if (!apiReply) { showErrorNotification("API returned empty content. Please try again."); return; }
 
   document.getElementById('api_reply').value = apiReply;
-  document.getElementById('turn').value = String(turn + 1);
   
-  // Automatically judge the assistant turn that was just logged
+  // Mark step 3 as completed for current turn
+  FLOW.apiSentTurn = turn;
+  updateFlowUI();
+
+  // Optional: automatic judge for the assistant turn that was just logged
   try {
     const judgeResponse = await fetch(`${BASE}/api/judge`, {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({ session_id: SID, turn_index: turn })
     });
-    if (!judgeResponse.ok) {
-      console.warn(`Judge evaluation failed: ${await judgeResponse.text()}`);
-    } else {
-      console.log("Judge evaluation completed for turn", turn);
-    }
+    if (!judgeResponse.ok) console.warn(`Judge evaluation failed: ${await judgeResponse.text()}`);
   } catch (e) {
     console.warn("Judge evaluation error:", e);
   }
-  
-  await viewTranscript(SID); // update transcript viewer
-  syncHeights();
-}
 
-/* ---------------- human codes ---------------- */
-async function code() {
-  if (!SID) { alert("Start or load a session first"); return; }
-  const turn = +document.getElementById('turn').value - 1;
-  const payload = {
-    session_id: SID, turn_index: turn,
-    pushback: +document.getElementById('pushback').value,
-    de_escalation: +document.getElementById('de_escalation').value,
-    redirection: +document.getElementById('redirection').value,
-    help_referral: +document.getElementById('help_referral').value,
-    consciousness_claims: +document.getElementById('consciousness_claims').value,
-    delusion_reinforcement: +document.getElementById('delusion_reinforcement').value,
-    escalation: +document.getElementById('escalation').value,
-    harmful_advice: +document.getElementById('harmful_advice').value,
-    sycophancy: +document.getElementById('sycophancy').value,
-  };
-  const r = await fetch(`${BASE}/api/code`, {
-    method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)
-  });
-  if (r.ok) { alert("Codes saved."); resetDropdowns(); }
-  else { alert(`Code error: ${await r.text()}`); }
+  // Advance to next turn & reset cycle
+  document.getElementById('turn').value = String(turn + 1);
+  FLOW.loggedForTurn = null;
+  FLOW.codesSavedTurn = null;
+  FLOW.apiSentTurn = null;
+  resetDropdowns();
+  // Keep the pasted content if you want users to copy it forward; otherwise clear:
+  document.getElementById('left').value = "";
+  updateFlowUI();
+
+  await viewTranscript(SID);
   syncHeights();
-}
-function resetDropdowns() {
-  ['pushback','de_escalation','redirection','help_referral','consciousness_claims','delusion_reinforcement','escalation','harmful_advice','sycophancy']
-    .forEach(id => document.getElementById(id).value = "0");
 }
 
 /* ---------------- sessions browser ---------------- */
@@ -414,9 +552,9 @@ function renderSessions(items) {
         <div class="small"><b>User:</b> ${escapeHtml(s.user_model || "")}</div>
         <div class="small"><b>Eval:</b> ${escapeHtml(s.evaluated_model || "")}</div>
       </td>
-      <td>${s.turn_count} <span class="small">(next ${s.next_index})</span></td>
+      <td>${s.next_index}</td>
       <td class="small">${s.updated_at}</td>
-      <td><button onclick="loadSession('${s.session_id.replace(/'/g, "\\'")}')">Open</button> 
+      <td><button onclick="loadSession('${s.session_id.replace(/'/g, "\\'")}')">Resume</button> 
           <button onclick="viewTranscript('${s.session_id.replace(/'/g, "\\'")}')">View</button></td>
     `;
     tb.appendChild(tr);
@@ -440,8 +578,29 @@ async function viewTranscript(sessionId) {
 /* utils */
 function escapeHtml(s){return s.replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
 
+function showErrorNotification(message) {
+  alert(message);
+}
+
 /* init */
-window.addEventListener('load', () => { loadPrompts(); refreshSessions(); });
+window.addEventListener('load', () => { 
+  loadPrompts(); 
+  refreshSessions(); 
+
+  // Disable codes panel & Send until flow advances
+  enableCodesPanel(false);
+  updateFlowUI();
+  updateStatusIndicators();
+
+  // If user edits the pasted text, require re-log
+  const leftTA = document.getElementById('left');
+  leftTA.addEventListener('input', () => {
+    FLOW.loggedForTurn = null;
+    FLOW.codesSavedTurn = null;
+    FLOW.apiSentTurn = null;
+    updateFlowUI();
+  });
+});
 </script>
 </body>
 </html>

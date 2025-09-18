@@ -1,5 +1,5 @@
 # server.py
-import os, uuid, time, sqlite3, json, re
+import os, uuid, time, json, re
 from typing import List, Optional, Literal, Dict, Any, Set
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
@@ -13,6 +13,10 @@ from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
 import anthropic
 
+# --- Postgres driver ---
+import psycopg2
+import psycopg2.extras
+
 OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY", "")
 ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY", "")
 OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
@@ -24,7 +28,88 @@ JUDGE_API_KEY       = os.getenv("JUDGE_API_KEY", OPENROUTER_API_KEY)
 JUDGE_BASE_URL      = os.getenv("JUDGE_BASE_URL", "https://openrouter.ai/api/v1")
 JUDGE_MODEL         = os.getenv("JUDGE_MODEL", "openai/gpt-5-nano")
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+
 USER_AGENT_BASE_SYSTEM_PROMPT = ""
+
+# ────────────────────────────── DB Helpers ──────────────────────────────
+def get_conn():
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
+
+def init_db():
+    with get_conn() as con:
+        with con.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS sessions(
+                    session_id TEXT PRIMARY KEY,
+                    ra_pseudonym TEXT,
+                    user_model TEXT,
+                    evaluated_model TEXT,
+                    scenario_id TEXT,
+                    created_at DOUBLE PRECISION
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS turns(
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT REFERENCES sessions(session_id) ON DELETE CASCADE,
+                    turn_index INTEGER,
+                    source TEXT,
+                    role TEXT,
+                    content TEXT,
+                    meta_json TEXT,
+                    created_at DOUBLE PRECISION
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS human_codes(
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT REFERENCES sessions(session_id) ON DELETE CASCADE,
+                    turn_index INTEGER,
+                    pushback INTEGER,
+                    de_escalation INTEGER,
+                    redirection INTEGER,
+                    help_referral INTEGER,
+                    consciousness_claims INTEGER,
+                    delusion_reinforcement INTEGER,
+                    escalation INTEGER,
+                    harmful_advice INTEGER,
+                    sycophancy INTEGER,
+                    created_at DOUBLE PRECISION
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS judge_results(
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT REFERENCES sessions(session_id) ON DELETE CASCADE,
+                    turn_index INTEGER,
+                    pushback REAL,
+                    de_escalation REAL,
+                    redirection REAL,
+                    help_referral REAL,
+                    consciousness_claims REAL,
+                    delusion_reinforcement REAL,
+                    escalation REAL,
+                    harmful_advice REAL,
+                    sycophancy REAL,
+                    raw_text TEXT,
+                    assistant_length_chars INTEGER,
+                    created_at DOUBLE PRECISION
+                )
+            """)
+        con.commit()
+
+def query(sql: str, args: tuple = (), fetch: bool = False, one: bool = False):
+    with get_conn() as con:
+        with con.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, args)
+            if fetch:
+                if one:
+                    return cur.fetchone()
+                return cur.fetchall()
+            con.commit()
+
+# ────────────────────────────── Utility ──────────────────────────────
 
 def load_text_file(filepath: str) -> str:
     try:
@@ -59,6 +144,9 @@ def extract_expected_metrics(criteria_text: str) -> Set[str]:
         metrics.add(stripped)
     return metrics
 
+
+# ────────────────────────────── FastAPI App ──────────────────────────────
+
 app = FastAPI()
 ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
 app.add_middleware(
@@ -68,67 +156,7 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-DB = os.getenv("DB_PATH", "spiralbench.db")
-db_dir = os.path.dirname(DB) or "."
-Path(db_dir).mkdir(parents=True, exist_ok=True)
-
-def init_db():
-    with sqlite3.connect(DB) as con:
-        con.execute("PRAGMA journal_mode=WAL;")
-        con.execute("PRAGMA busy_timeout=5000;")
-        cur = con.cursor()
-        cur.execute("""CREATE TABLE IF NOT EXISTS sessions(
-            session_id TEXT PRIMARY KEY,
-            ra_pseudonym TEXT,
-            user_model TEXT,
-            evaluated_model TEXT,
-            scenario_id TEXT,
-            created_at REAL
-        )""")
-        cur.execute("""CREATE TABLE IF NOT EXISTS turns(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT,
-            turn_index INTEGER,
-            source TEXT,
-            role TEXT,
-            content TEXT,
-            meta_json TEXT,
-            created_at REAL
-        )""")
-        cur.execute("""CREATE TABLE IF NOT EXISTS human_codes(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT,
-            turn_index INTEGER,
-            pushback INTEGER,
-            de_escalation INTEGER,
-            redirection INTEGER,
-            help_referral INTEGER,
-            consciousness_claims INTEGER,
-            delusion_reinforcement INTEGER,
-            escalation INTEGER,
-            harmful_advice INTEGER,
-            sycophancy INTEGER,
-            created_at REAL
-        )""")
-        cur.execute("""CREATE TABLE IF NOT EXISTS judge_results(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_id TEXT,
-            turn_index INTEGER,
-            pushback REAL,
-            de_escalation REAL,
-            redirection REAL,
-            help_referral REAL,
-            consciousness_claims REAL,
-            delusion_reinforcement REAL,
-            escalation REAL,
-            harmful_advice REAL,
-            sycophancy REAL,
-            raw_text TEXT,
-            assistant_length_chars INTEGER,
-            created_at REAL
-        )""")
-        con.commit()
-
+# Initialize DB at startup
 init_db()
 
 # ────────────────────────────── Session create / list / get / transcript ──────────────────────────────
@@ -142,15 +170,15 @@ class CreateSession(BaseModel):
 @app.post("/api/session")
 def create_session(req: CreateSession):
     sid = str(uuid.uuid4())
-    with sqlite3.connect(DB) as con:
-        con.execute("INSERT INTO sessions VALUES (?,?,?,?,?,?)",
-            (sid, req.ra_pseudonym, req.user_model, req.evaluated_model, req.scenario_id, time.time()))
-        con.commit()
+    query(
+        """INSERT INTO sessions(session_id, ra_pseudonym, user_model, evaluated_model, scenario_id, created_at)
+           VALUES (%s,%s,%s,%s,%s,%s)""",
+        (sid, req.ra_pseudonym, req.user_model, req.evaluated_model, req.scenario_id, time.time())
+    )
     return {"session_id": sid}
 
 @app.get("/api/sessions")
 def list_sessions(limit: int = 50, ra: Optional[str] = None, scenario: Optional[str] = None, q: Optional[str] = None):
-    """Recent sessions with quick stats for the browser UI."""
     sql = """
     SELECT s.session_id, s.ra_pseudonym, s.user_model, s.evaluated_model, s.scenario_id, s.created_at,
            COALESCE((SELECT MAX(turn_index) FROM turns t WHERE t.session_id = s.session_id), -1) AS last_turn_index,
@@ -158,23 +186,19 @@ def list_sessions(limit: int = 50, ra: Optional[str] = None, scenario: Optional[
            COALESCE((SELECT COUNT(*) FROM turns t3 WHERE t3.session_id = s.session_id), 0) AS turn_count
     FROM sessions s
     """
-    where = []
-    args: List[Any] = []
+    where, args = [], []
     if ra:
-        where.append("s.ra_pseudonym = ?"); args.append(ra)
+        where.append("s.ra_pseudonym = %s"); args.append(ra)
     if scenario:
-        where.append("s.scenario_id = ?"); args.append(scenario)
+        where.append("s.scenario_id = %s"); args.append(scenario)
     if q:
-        where.append("(s.session_id LIKE ? OR s.ra_pseudonym LIKE ? OR s.scenario_id LIKE ?)")
+        where.append("(s.session_id ILIKE %s OR s.ra_pseudonym ILIKE %s OR s.scenario_id ILIKE %s)")
         args.extend([f"%{q}%", f"%{q}%", f"%{q}%"])
     if where:
         sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY updated_at DESC LIMIT ?"
+    sql += " ORDER BY updated_at DESC LIMIT %s"
     args.append(limit)
-
-    with sqlite3.connect(DB) as con:
-        con.row_factory = sqlite3.Row
-        rows = con.execute(sql, args).fetchall()
+    rows = query(sql, tuple(args), fetch=True)
     out = []
     for r in rows:
         out.append({
@@ -193,13 +217,11 @@ def list_sessions(limit: int = 50, ra: Optional[str] = None, scenario: Optional[
 
 @app.get("/api/session/{session_id}")
 def get_session(session_id: str):
-    with sqlite3.connect(DB) as con:
-        con.row_factory = sqlite3.Row
-        s = con.execute("SELECT * FROM sessions WHERE session_id=?", (session_id,)).fetchone()
-        if not s:
-            raise HTTPException(404, "Session not found")
-        last_idx = con.execute("SELECT COALESCE(MAX(turn_index), -1) FROM turns WHERE session_id=?", (session_id,)).fetchone()[0]
-        updated_at = con.execute("SELECT COALESCE(MAX(created_at), ?) FROM turns WHERE session_id=?", (s["created_at"], session_id)).fetchone()[0]
+    s = query("SELECT * FROM sessions WHERE session_id=%s", (session_id,), fetch=True, one=True)
+    if not s:
+        raise HTTPException(404, "Session not found")
+    last_idx = query("SELECT COALESCE(MAX(turn_index), -1) AS val FROM turns WHERE session_id=%s", (session_id,), fetch=True, one=True)["val"]
+    updated_at = query("SELECT COALESCE(MAX(created_at), %s) AS val FROM turns WHERE session_id=%s", (s["created_at"], session_id), fetch=True, one=True)["val"]
     return {
         "session_id": s["session_id"],
         "ra_pseudonym": s["ra_pseudonym"],
@@ -214,13 +236,11 @@ def get_session(session_id: str):
 
 @app.get("/api/session/{session_id}/transcript")
 def get_transcript(session_id: str):
-    with sqlite3.connect(DB) as con:
-        con.row_factory = sqlite3.Row
-        turns = con.execute("""
+    turns = query("""
             SELECT turn_index, source, role, content, created_at
-            FROM turns WHERE session_id=?
+            FROM turns WHERE session_id=%s
             ORDER BY turn_index ASC, created_at ASC
-        """, (session_id,)).fetchall()
+        """, (session_id,), fetch=True)
     transcript = [{
         "turn_index": r["turn_index"],
         "source": r["source"],
@@ -244,11 +264,9 @@ class LogTurn(BaseModel):
 @app.post("/api/turn")
 def log_turn(t: LogTurn):
     role = "assistant" if t.source == "chat_ui" else t.role
-    with sqlite3.connect(DB) as con:
-        con.execute("""INSERT INTO turns(session_id,turn_index,source,role,content,meta_json,created_at)
-                       VALUES (?,?,?,?,?,?,?)""",
-                       (t.session_id, t.turn_index, t.source, role, t.content, t.meta_json or "{}", time.time()))
-        con.commit()
+    query("""INSERT INTO turns(session_id,turn_index,source,role,content,meta_json,created_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+           (t.session_id, t.turn_index, t.source, role, t.content, t.meta_json or "{}", time.time()))
     return {"ok": True}
 
 class CodeTurn(BaseModel):
@@ -266,13 +284,11 @@ class CodeTurn(BaseModel):
 
 @app.post("/api/code")
 def code_turn(c: CodeTurn):
-    with sqlite3.connect(DB) as con:
-        con.execute("""INSERT INTO human_codes(session_id,turn_index,pushback,de_escalation,redirection,
+    query("""INSERT INTO human_codes(session_id,turn_index,pushback,de_escalation,redirection,
             help_referral,consciousness_claims,delusion_reinforcement,escalation,harmful_advice,sycophancy,created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (c.session_id,c.turn_index,c.pushback,c.de_escalation,c.redirection,
              c.help_referral,c.consciousness_claims,c.delusion_reinforcement,c.escalation,c.harmful_advice,c.sycophancy,time.time()))
-        con.commit()
     return {"ok": True}
 
 class JudgeRequest(BaseModel):
@@ -300,13 +316,11 @@ def judge_turn(req: JudgeRequest):
         raise HTTPException(400, "Rubric criteria file not found")
     
     # Get the conversation transcript up to the specified turn
-    with sqlite3.connect(DB) as con:
-        con.row_factory = sqlite3.Row
-        turns = con.execute("""
+    turns = query("""
             SELECT turn_index, source, role, content, created_at
-            FROM turns WHERE session_id=? AND turn_index <= ?
+            FROM turns WHERE session_id=%s AND turn_index <= %s
             ORDER BY turn_index ASC, created_at ASC
-        """, (req.session_id, req.turn_index)).fetchall()
+        """, (req.session_id, req.turn_index), fetch=True)
     
     if not turns:
         raise HTTPException(404, "No turns found for this session/turn_index")
@@ -495,10 +509,9 @@ def judge_turn(req: JudgeRequest):
             metrics_summed[metric] = total
         
         # Store in database with individual columns matching human_codes structure
-        with sqlite3.connect(DB) as con:
-            con.execute("""INSERT INTO judge_results(session_id,turn_index,pushback,de_escalation,redirection,
+        query("""INSERT INTO judge_results(session_id,turn_index,pushback,de_escalation,redirection,
                 help_referral,consciousness_claims,delusion_reinforcement,escalation,harmful_advice,sycophancy,
-                raw_text,assistant_length_chars,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                raw_text,assistant_length_chars,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (req.session_id, req.turn_index,
                  metrics_summed.get("pushback", 0.0),
                  metrics_summed.get("de-escalation", 0.0),
@@ -510,7 +523,6 @@ def judge_turn(req: JudgeRequest):
                  metrics_summed.get("harmful advice", 0.0),
                  metrics_summed.get("sycophancy or praise", 0.0),
                  judgement_str, len(assistant_content), time.time()))
-            con.commit()
         
         return {
             "metrics": metrics_summed,
@@ -558,10 +570,9 @@ def api_call(req: APICall):
     if req.system_prompt:
         user_system_prompt = f"{user_system_prompt}\n\n{req.system_prompt}"
 
-    with sqlite3.connect(DB) as con:
-        rows = con.execute("""SELECT role, content FROM turns
-                              WHERE session_id=? ORDER BY turn_index ASC, created_at ASC""", (req.session_id,)).fetchall()
-    transcript = [{"role": r, "content": c} for (r, c) in rows]
+    rows = query("""SELECT role, content FROM turns
+                              WHERE session_id=%s ORDER BY turn_index ASC, created_at ASC""", (req.session_id,), fetch=True)
+    transcript = [{"role": row["role"], "content": row["content"]} for row in rows]
 
     if req.seed_prompt and not transcript:
         transcript = [{"role": "user", "content": req.seed_prompt}]
@@ -645,14 +656,12 @@ def api_call(req: APICall):
     if not content or not content.strip():
         raise HTTPException(502, "API returned empty or null content")
 
-    with sqlite3.connect(DB) as con:
-        cur = con.cursor()
-        row = cur.execute("SELECT COALESCE(MAX(turn_index), -1) FROM turns WHERE session_id=?", (req.session_id,)).fetchone()
-        next_idx = (row[0] or -1) + 1
-        cur.execute("""INSERT INTO turns(session_id,turn_index,source,role,content,meta_json,created_at)
-                       VALUES (?,?,?,?,?,?,?)""",
-                    (req.session_id,next_idx,"api","user",content,"{}",time.time()))
-        con.commit()
+    row = query("SELECT COALESCE(MAX(turn_index), -1) AS val FROM turns WHERE session_id=%s",
+                (req.session_id,), fetch=True, one=True)
+    next_idx = (row["val"] or -1) + 1
+    query("""INSERT INTO turns(session_id,turn_index,source,role,content,meta_json,created_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+           (req.session_id,next_idx,"api","user",content,"{}",time.time()))
 
     return {"assistant": content, "turn_index": next_idx}
 

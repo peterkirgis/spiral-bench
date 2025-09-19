@@ -611,7 +611,8 @@ async function sendToApi() {
     document.getElementById('left').value = "";
     updateFlowUI();
 
-    await viewTranscript(SID);
+    // Update transcript in background (non-blocking)
+    viewTranscript(SID).catch(console.error);
     syncHeights();
   } catch (error) {
     console.error("Error in sendToApi:", error);

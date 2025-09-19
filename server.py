@@ -1,5 +1,5 @@
 # server.py
-import os, uuid, time, json, re
+import os, uuid, time, json, re, random
 from typing import List, Optional, Literal, Dict, Any, Set
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
@@ -34,7 +34,7 @@ USER_AGENT_BASE_SYSTEM_PROMPT = ""
 
 # ────────────────────────────── DB Helpers ──────────────────────────────
 def get_conn():
-    return psycopg2.connect(DATABASE_URL, sslmode="require")
+    return psycopg2.connect(DATABASE_URL)
 
 def init_db():
     with get_conn() as con:
@@ -58,6 +58,7 @@ def init_db():
                     role TEXT,
                     content TEXT,
                     meta_json TEXT,
+                    injection_used TEXT DEFAULT '',
                     created_at DOUBLE PRECISION
                 )
             """)
@@ -237,7 +238,7 @@ def get_session(session_id: str):
 @app.get("/api/session/{session_id}/transcript")
 def get_transcript(session_id: str):
     turns = query("""
-            SELECT turn_index, source, role, content, created_at
+            SELECT turn_index, source, role, content, injection_used, created_at
             FROM turns WHERE session_id=%s
             ORDER BY turn_index ASC, created_at ASC
         """, (session_id,), fetch=True)
@@ -246,6 +247,7 @@ def get_transcript(session_id: str):
         "source": r["source"],
         "role": r["role"],
         "content": r["content"],
+        "injection_used": r["injection_used"] or "",
         "created_at": ts_iso(r["created_at"])
     } for r in turns]
     last_idx = max([t["turn_index"] for t in transcript], default=-1)
@@ -260,13 +262,20 @@ class LogTurn(BaseModel):
     role: Literal["user","assistant"]
     content: str
     meta_json: Optional[str] = None
+    injection_used: Optional[str] = None
 
 @app.post("/api/turn")
 def log_turn(t: LogTurn):
+    # Allow multiple messages per turn (assistant + user), but prevent exact duplicates
     role = "assistant" if t.source == "chat_ui" else t.role
-    query("""INSERT INTO turns(session_id,turn_index,source,role,content,meta_json,created_at)
-               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-           (t.session_id, t.turn_index, t.source, role, t.content, t.meta_json or "{}", time.time()))
+    existing = query("""SELECT id FROM turns WHERE session_id=%s AND turn_index=%s AND role=%s LIMIT 1""", 
+                    (t.session_id, t.turn_index, role), fetch=True, one=True)
+    if existing:
+        raise HTTPException(409, f"Turn {t.turn_index} with role '{role}' already exists for session {t.session_id}")
+    
+    query("""INSERT INTO turns(session_id,turn_index,source,role,content,meta_json,injection_used,created_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+           (t.session_id, t.turn_index, t.source, role, t.content, t.meta_json or "{}", t.injection_used or "", time.time()))
     return {"ok": True}
 
 class CodeTurn(BaseModel):
@@ -547,28 +556,53 @@ class APICall(BaseModel):
     system_prompt: Optional[str] = None
     temperature: float = 0.7
     seed: Optional[int] = None
-    user_message: str
+    user_message: Optional[str] = None  # Make optional for conversation continuation
     role: Literal["user","assistant"] = "user"
     provider: Optional[Literal["openai","anthropic","openrouter"]] = None
     openrouter_base_url: Optional[str] = None
     category: Optional[str] = None
     instruction_file: Optional[str] = None
     seed_prompt: Optional[str] = None
+    injections: Optional[List[str]] = None
+    injection_frequency: int = 5
 
 @app.post("/api/call")
 def api_call(req: APICall):
     instruction_file = req.instruction_file or "user_instructions/default.txt"
     instructions = load_text_file(instruction_file)
-    user_system_prompt = f"{USER_AGENT_BASE_SYSTEM_PROMPT}\n{instructions}".strip()
+    base_user_system_prompt = f"{USER_AGENT_BASE_SYSTEM_PROMPT}\n{instructions}".strip()
 
     if req.category:
         category_map = load_category_instructions()
         extra_text = category_map.get(req.category, "").strip()
         if extra_text:
-            user_system_prompt += f"\n\n# Extra instructions for this roleplay:\n{extra_text}"
+            base_user_system_prompt += f"\n\n# Extra instructions for this roleplay:\n{extra_text}"
 
     if req.system_prompt:
-        user_system_prompt = f"{user_system_prompt}\n\n{req.system_prompt}"
+        base_user_system_prompt = f"{base_user_system_prompt}\n\n{req.system_prompt}"
+
+    # Apply injection logic similar to conversation_runner
+    user_system_prompt = base_user_system_prompt
+    injection_used = ""
+    
+    # Load default injections from entropy.json if none provided
+    injections_to_use = req.injections
+    if not injections_to_use:
+        try:
+            with open("user_instructions/entropy.json", "r", encoding="utf-8") as f:
+                injections_to_use = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            injections_to_use = []
+    
+    if injections_to_use and req.injection_frequency > 0:
+        # Initialize random generator with seed if provided
+        rnd = random.Random(req.seed) if req.seed is not None else random.Random()
+        
+        # Apply injection with probability 1/injection_frequency
+        if rnd.random() < 1 / req.injection_frequency:
+            injection_to_add = rnd.choice(injections_to_use)
+            user_system_prompt = f"{base_user_system_prompt}\n\n[Additional instruction for this turn: {injection_to_add}]"
+            injection_used = injection_to_add
 
     rows = query("""SELECT role, content FROM turns
                               WHERE session_id=%s ORDER BY turn_index ASC, created_at ASC""", (req.session_id,), fetch=True)
@@ -580,18 +614,37 @@ def api_call(req: APICall):
         if not transcript or transcript[0]["content"] != req.seed_prompt:
             transcript = [{"role": "user", "content": req.seed_prompt}] + transcript
 
+    # Build messages for user model following conversation_runner logic
     user_msgs = [{"role": "system", "content": user_system_prompt}]
     user_msgs.extend(transcript)
-    user_msgs.append({"role": req.role, "content": req.user_message})
-
+    
+    # Only append user_message if provided (for manual message injection)
+    if req.user_message:
+        user_msgs.append({"role": req.role, "content": req.user_message})
+    
+    # Handle the case where the last message is from assistant (normal case for conversation continuation)
     if user_msgs[-1]["role"] == "assistant":
+        # Add instructions to the assistant message for proper context
         user_msgs[-1] = {
             **user_msgs[-1],
-            "content": user_msgs[-1]["content"] + "\n\n[Instructions for your response:\n" + user_system_prompt + "\n]"
+            "content": (
+                user_msgs[-1]["content"]
+                + "\n\n[Instructions for your response:\n"
+                + user_system_prompt
+                + "\n]"
+            ),
         }
-
-    flipped = [{"role": ("user" if m["role"] == "assistant" else "assistant"), "content": m["content"]} for m in user_msgs[1:]]
+    
+    # Flip roles: assistant becomes user (to the user model), user becomes assistant
+    flipped = [
+        {"role": ("user" if m["role"] == "assistant" else "assistant"), "content": m["content"]}
+        for m in user_msgs[1:]  # Skip system message
+    ]
     messages = [user_msgs[0]] + flipped
+    
+    # Ensure the last message is from user (required for API calls)
+    if not messages or messages[-1]["role"] != "user":
+        raise HTTPException(400, "Conversation must end with assistant message for user model to respond")
 
     provider = req.provider
     if provider is None:
@@ -656,14 +709,15 @@ def api_call(req: APICall):
     if not content or not content.strip():
         raise HTTPException(502, "API returned empty or null content")
 
+    # Use the max turn_index to create the user response at the same turn as the last assistant
     row = query("SELECT COALESCE(MAX(turn_index), -1) AS val FROM turns WHERE session_id=%s",
                 (req.session_id,), fetch=True, one=True)
-    next_idx = (row["val"] or -1) + 1
-    query("""INSERT INTO turns(session_id,turn_index,source,role,content,meta_json,created_at)
-               VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-           (req.session_id,next_idx,"api","user",content,"{}",time.time()))
+    current_turn = row["val"] or 0
+    query("""INSERT INTO turns(session_id,turn_index,source,role,content,meta_json,injection_used,created_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+           (req.session_id,current_turn,"api","user",content,"{}",injection_used,time.time()))
 
-    return {"assistant": content, "turn_index": next_idx}
+    return {"assistant": content, "turn_index": current_turn, "injection_used": injection_used}
 
 # Prompts for UI
 @app.get("/api/prompts")

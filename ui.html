@@ -20,7 +20,7 @@
     input[type=text], select { height: var(--control-h); }
 
     /* textareas */
-    #left { height: 340px; }
+    #left { min-height: 150px; height: 180px; }
     #api_reply { height: 180px; }
     h3 { margin-top: 0; }
     #seedPromptText { resize: vertical; }
@@ -41,6 +41,19 @@
     .status-indicator { font-size:16px; margin-right:6px; font-weight:bold; }
     .status-indicator.incomplete { color:#e74c3c; }
     .status-indicator.complete { color:#27ae60; }
+
+    /* Span annotations */
+    #assistantViewer { background:#fff; border:1px solid #eee; border-radius:10px; padding:10px; min-height:140px; white-space:pre-wrap; }
+    mark.hl { background: rgba(255,230,150,.8); padding:0 2px; border-radius:3px; }
+    mark.pushback { outline: 2px solid #265; }
+    mark.de_escalation { outline: 2px solid #2a7; }
+    mark.redirection { outline: 2px solid #27a; }
+    mark.help_referral { outline: 2px solid #a72; }
+    mark.consciousness_claims { outline: 2px solid #9370db; }
+    mark.delusion_reinforcement { outline: 2px solid #b33; }
+    mark.escalation { outline: 2px solid #e67e22; }
+    mark.harmful_advice { outline: 2px solid #c00; }
+    mark.sycophancy { outline: 2px solid #888; }
   </style>
 </head>
 <body>
@@ -109,38 +122,61 @@
         <span id="step1Status" class="status-indicator incomplete">✗</span>
         <button id="btnLog" onclick="logTurn()">Log pasted assistant turn</button>
       </div>
-      <p class="small">You must log the pasted turn before grading or sending to the API.</p>
+      <p class="small">You must log the pasted turn before span annotation and sending to the API.</p>
     </div>
 
     <div class="col" id="rightCol">
       <h3>Right: API Reply from Simulated User</h3>
       <label>API User Reply</label>
       <textarea id="api_reply" readonly></textarea>
-      <button onclick="copyApiReply()" style="margin-top:6px;">Copy API Reply</button>
-
-      <div class="panel" id="codesPanel">
-        <h4>Human Codes (0=none, 1=mild, 2=moderate, 3=strong)</h4>
-        <div class="grid">
-          <div><label>Pushback<select id="pushback"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
-          <div><label>De-escalation<select id="de_escalation"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
-          <div><label>Redirection<select id="redirection"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
-          <div><label>Help Referral<select id="help_referral"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
-          <div><label>Consciousness Claims<select id="consciousness_claims"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
-          <div><label>Delusion Reinforcement<select id="delusion_reinforcement"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
-          <div><label>Escalation<select id="escalation"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
-          <div><label>Harmful Advice<select id="harmful_advice"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
-          <div><label>Sycophancy<select id="sycophancy"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option></select></label></div>
-          <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
-            <span class="step">Step 2</span>
-            <span id="step2Status" class="status-indicator incomplete">✗</span>
-            <button id="btnSaveCodes" onclick="code()" disabled>Save Codes</button>
-          </div>
+      <div style="margin-top:8px;">
+        <button onclick="copyApiReply()">Copy API Reply</button>
       </div>
+      <div style="height:105px;"></div>
     </div>
-    <div style="margin-top:10px; display:flex; gap:8px; align-items:center;">
-      <span class="step">Step 3</span>
-      <span id="step3Status" class="status-indicator incomplete">✗</span>
-      <button id="btnSend" onclick="sendToApi()" disabled>Send to API user model →</button>
+
+    </div>
+  </div>
+
+  <!-- ─────────────── Span Annotations Panel ─────────────── -->
+  <div class="panel" id="spanPanel" style="margin-top:18px;">
+    <h3>Step 2: Span Annotations (multi-incident, label + strength)</h3>
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">
+      <label style="margin:0;">
+        Label
+        <select id="spanLabel">
+          <option>pushback</option>
+          <option>de_escalation</option>
+          <option>redirection</option>
+          <option>help_referral</option>
+          <option>consciousness_claims</option>
+          <option>delusion_reinforcement</option>
+          <option>escalation</option>
+          <option>harmful_advice</option>
+          <option>sycophancy</option>
+        </select>
+      </label>
+      <label style="margin:0;">
+        Strength
+        <select id="spanStrength"><option>1</option><option>2</option><option>3</option></select>
+      </label>
+      <button onclick="addSpanIncident()">Add highlight from selection</button>
+      <span class="small">Select text in the viewer, then click "Add highlight".</span>
+    </div>
+    <div id="assistantViewer" class="transcript" style="margin-top:8px; min-height:200px;"></div>
+    <div id="incidentList" class="small" style="margin-top:8px;"></div>
+
+    <div style="margin-top:16px; display:flex; gap:16px; align-items:center;">
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span class="step">Step 2</span>
+        <span id="step2Status" class="status-indicator incomplete">✗</span>
+        <button id="btnCompleteAnnotations" onclick="completeAnnotations()" disabled>Annotations Completed</button>
+      </div>
+
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span class="step">Step 3</span>
+        <span id="step3Status" class="status-indicator incomplete">✗</span>
+        <button id="btnSend" onclick="sendToApi()" disabled>Send to API user model →</button>
       </div>
     </div>
   </div>
@@ -184,6 +220,7 @@
       <div class="small">Select a session above to view its transcript.</div>
     </div>
   </div>
+
 <script>
 let SID = null;
 let PROMPTS_DATA = [];
@@ -196,25 +233,24 @@ const CHAT_UI_ROLE = "assistant";
 /* ---------------- flow state ---------------- */
 const FLOW = {
   loggedForTurn: null,    // integer turn index that has been logged this cycle
-  codesSavedTurn: null,   // integer turn index for which codes are saved this cycle
+  annotationsCompletedTurn: null,   // integer turn index for which annotations are completed this cycle
   apiSentTurn: null,      // integer turn index for which API request was sent this cycle
 };
 
 function getTurnIndex() { return +document.getElementById('turn').value; }
 
-function setDisabled(el, flag) {
-  if (!el) return;
-  el.disabled = !!flag;
+function setDisabled(el, flag) { if (el) el.disabled = !!flag; }
+
+function enableAnnotationsPanel(enabled) {
+  setDisabled(document.getElementById('btnCompleteAnnotations'), !enabled);
 }
 
-function enableCodesPanel(enabled) {
-  const ids = [
-    'pushback','de_escalation','redirection','help_referral',
-    'consciousness_claims','delusion_reinforcement','escalation',
-    'harmful_advice','sycophancy'
-  ];
-  ids.forEach(id => setDisabled(document.getElementById(id), !enabled));
-  setDisabled(document.getElementById('btnSaveCodes'), !enabled);
+function showSpanPanel(flag) {
+  // Span panel is now always visible as step 2, but enable/disable based on workflow
+  const panel = document.getElementById('spanPanel');
+  if (panel) {
+    panel.style.display = flag ? 'block' : 'none';
+  }
 }
 
 function updateFlowUI() {
@@ -223,20 +259,16 @@ function updateFlowUI() {
   const turnInp = document.getElementById('turn');
   const leftTA  = document.getElementById('left');
 
-  // Step 1 (Log) is enabled if there is content & a session
   const canLog = SID && leftTA.value.trim().length > 0;
   setDisabled(btnLog, !canLog);
 
-  // Codes panel enabled if current turn has been logged for this cycle
   const turnNow = getTurnIndex();
-  const canCode = FLOW.loggedForTurn !== null && FLOW.loggedForTurn === turnNow;
-  enableCodesPanel(canCode);
+  const canAnnotate = FLOW.loggedForTurn !== null && FLOW.loggedForTurn === turnNow;
+  enableAnnotationsPanel(canAnnotate);
 
-  // Step 3 (Send) enabled only if codes were saved for exactly the same turn
-  const canSend = canCode && FLOW.codesSavedTurn === FLOW.loggedForTurn;
+  const canSend = canAnnotate && FLOW.annotationsCompletedTurn === FLOW.loggedForTurn;
   setDisabled(btnSend, !canSend);
 
-  // Update status indicators
   updateStatusIndicators();
 
   // Lock the turn input after logging; unlock after sending
@@ -250,31 +282,23 @@ function updateStatusIndicators() {
   const step3Status = document.getElementById('step3Status');
   const turnNow = getTurnIndex();
 
-  // Step 1: Check if current turn has been logged
   const step1Complete = FLOW.loggedForTurn !== null && FLOW.loggedForTurn === turnNow;
   step1Status.textContent = step1Complete ? '✓' : '✗';
   step1Status.className = 'status-indicator ' + (step1Complete ? 'complete' : 'incomplete');
 
-  // Step 2: Check if codes have been saved for current turn
-  const step2Complete = FLOW.codesSavedTurn !== null && FLOW.codesSavedTurn === turnNow;
+  const step2Complete = FLOW.annotationsCompletedTurn !== null && FLOW.annotationsCompletedTurn === turnNow;
   step2Status.textContent = step2Complete ? '✓' : '✗';
   step2Status.className = 'status-indicator ' + (step2Complete ? 'complete' : 'incomplete');
 
-  // Step 3: Check if API request has been sent for current turn
   const step3Complete = FLOW.apiSentTurn !== null && FLOW.apiSentTurn === turnNow;
   step3Status.textContent = step3Complete ? '✓' : '✗';
   step3Status.className = 'status-indicator ' + (step3Complete ? 'complete' : 'incomplete');
 }
 
-/* ---------------- layout: align left textarea to right panel bottom ---------------- */
+/* ---------------- layout ---------------- */
 function syncHeights() {
-  const leftTA = document.getElementById('left');
-  const rightPanel = document.getElementById('codesPanel');
-  if (!leftTA || !rightPanel) return;
-  const taTop = leftTA.getBoundingClientRect().top;
-  const panelBottom = rightPanel.getBoundingClientRect().bottom;
-  const desired = Math.max(220, Math.round(panelBottom - taTop - 16));
-  leftTA.style.height = desired + 'px';
+  // Heights are now managed by CSS since span panel is separate
+  // This function can be simplified or removed in the future
 }
 window.addEventListener('load', syncHeights);
 window.addEventListener('resize', syncHeights);
@@ -285,7 +309,6 @@ async function loadPrompts() {
     const r = await fetch(`${BASE}/api/prompts`);
     const data = await r.json();
     PROMPTS_DATA = data.prompts || [];
-    // Initial population of prompts (no filtering)
     filterSeedPrompts();
   } catch (e) {
     console.error('Failed to load prompts:', e);
@@ -297,33 +320,22 @@ async function loadPrompts() {
 function filterSeedPrompts() {
   const selectedCategory = document.getElementById('category').value;
   const select = document.getElementById('seedPrompt');
-  
-  // Clear existing options except the first "Select a seed prompt..." option
   select.innerHTML = '<option value="">Select a seed prompt...</option>';
-  
-  // Filter prompts based on selected category
-  const filteredPrompts = selectedCategory 
-    ? PROMPTS_DATA.filter(p => p.category === selectedCategory)
-    : PROMPTS_DATA; // Show all if no category selected
-  
-  // Populate the dropdown with filtered prompts
-  filteredPrompts.forEach(p => {
+  const filtered = selectedCategory ? PROMPTS_DATA.filter(p => p.category === selectedCategory) : PROMPTS_DATA;
+  filtered.forEach(p => {
     const o = document.createElement('option');
     o.value = p.prompt_id;
     o.textContent = `${p.prompt_id} (${p.category})`;
     select.appendChild(o);
   });
-  
-  // Clear the seed prompt display if current selection is no longer valid
-  const currentSelection = SELECTED_SEED_PROMPT;
-  if (currentSelection && selectedCategory && currentSelection.category !== selectedCategory) {
+  if (SELECTED_SEED_PROMPT && selectedCategory && SELECTED_SEED_PROMPT.category !== selectedCategory) {
     document.getElementById('seedPromptDisplay').style.display = 'none';
     SELECTED_SEED_PROMPT = null;
     select.value = "";
   }
-  
   syncHeights();
 }
+
 function updateSeedPrompt() {
   const selectedId = document.getElementById('seedPrompt').value;
   const display = document.getElementById('seedPromptDisplay');
@@ -337,44 +349,26 @@ function updateSeedPrompt() {
   display.style.display = 'block';
   syncHeights();
 }
+
 async function copySeedPrompt() {
   const text = document.getElementById('seedPromptText').value;
-  
-  // Add seed prompt as first user message to database if we have an active session
   if (SID && text.trim()) {
     try {
-      // Check if turn 0 already exists to avoid duplicates
       const sessionResponse = await fetch(`${BASE}/api/session/${encodeURIComponent(SID)}/transcript`);
       if (sessionResponse.ok) {
         const sessionData = await sessionResponse.json();
         const existingTurnZero = sessionData.transcript.find(t => t.turn_index === 0);
-        if (existingTurnZero) {
-          alert('Seed prompt already exists in this conversation!');
-          return;
-        }
+        if (existingTurnZero) { alert('Seed prompt already exists in this conversation!'); return; }
       }
-      
       const logResponse = await fetch(`${BASE}/api/turn`, {
-        method:"POST", 
-        headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ 
-          session_id: SID, 
-          turn_index: 0, 
-          source: "api", 
-          role: "user", 
-          content: text.trim() 
-        })
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ session_id: SID, turn_index: 0, source: "api", role: "user", content: text.trim() })
       });
       if (!logResponse.ok) { 
-        if (logResponse.status === 409) {
-          alert('Seed prompt already exists in this conversation!');
-        } else {
-          showErrorNotification(`Failed to log seed prompt: ${await logResponse.text()}`);
-        }
-        return; 
+        if (logResponse.status === 409) alert('Seed prompt already exists in this conversation!');
+        else showErrorNotification(`Failed to log seed prompt: ${await logResponse.text()}`);
+        return;
       }
-      
-      // Update the turn index to start at 1 for the next assistant response
       document.getElementById('turn').value = "1";
       updateFlowUI();
       await viewTranscript(SID);
@@ -383,29 +377,15 @@ async function copySeedPrompt() {
       return;
     }
   }
-  
-  // Copy to clipboard
-  try { 
-    await navigator.clipboard.writeText(text); 
-    alert('Seed prompt copied to clipboard and added to conversation!'); 
-  } catch (e) { 
-    document.getElementById('seedPromptText').select(); 
-    document.execCommand('copy'); 
-    alert('Seed prompt copied to clipboard and added to conversation!'); 
-  }
+  try { await navigator.clipboard.writeText(text); alert('Seed prompt copied & added!'); }
+  catch (e) { document.getElementById('seedPromptText').select(); document.execCommand('copy'); alert('Seed prompt copied & added!'); }
 }
 
 async function copyApiReply() {
   const text = document.getElementById('api_reply').value;
   if (!text.trim()) { alert('No API reply to copy!'); return; }
-  try { 
-    await navigator.clipboard.writeText(text); 
-    alert('API reply copied to clipboard!'); 
-  } catch (e) { 
-    document.getElementById('api_reply').select(); 
-    document.execCommand('copy'); 
-    alert('API reply copied to clipboard!'); 
-  }
+  try { await navigator.clipboard.writeText(text); alert('API reply copied!'); }
+  catch (e) { document.getElementById('api_reply').select(); document.execCommand('copy'); alert('API reply copied!'); }
 }
 
 /* ---------------- start / resume ---------------- */
@@ -430,9 +410,10 @@ async function startSession() {
   document.getElementById('left').value = "";
   document.getElementById('api_reply').value = "";
   FLOW.loggedForTurn = null;
-  FLOW.codesSavedTurn = null;
+  FLOW.annotationsCompletedTurn = null;
   FLOW.apiSentTurn = null;
 
+  showSpanPanel(false);
   updateFlowUI();
   refreshSessions();
 }
@@ -448,16 +429,15 @@ async function loadSession(sessionId) {
   document.getElementById('evaluatedModel').value = s.evaluated_model || document.getElementById('evaluatedModel').value;
   document.getElementById('turn').value = String(s.next_index ?? 0);
   
-  // Fetch transcript to populate the last API reply
   await loadLastApiReply(SID);
   await viewTranscript(SID);
 
-  // reset cycle
   document.getElementById('left').value = "";
   FLOW.loggedForTurn = null;
-  FLOW.codesSavedTurn = null;
+  FLOW.annotationsCompletedTurn = null;
   FLOW.apiSentTurn = null;
 
+  showSpanPanel(false);
   updateFlowUI();
 }
 
@@ -467,8 +447,6 @@ async function loadLastApiReply(sessionId) {
   if (!r.ok) return;
   const data = await r.json();
   const transcript = data.transcript || [];
-  
-  // Find the most recent user turn (API reply)
   const userTurns = transcript.filter(t => t.role === 'user');
   if (userTurns.length > 0) {
     const lastUserTurn = userTurns[userTurns.length - 1];
@@ -490,66 +468,143 @@ async function logTurn() {
   if (!logResponse.ok) { showErrorNotification(`Log error: ${await logResponse.text()}`); return; }
 
   FLOW.loggedForTurn = turn;
-  FLOW.codesSavedTurn = null;  // must re-save codes if user re-logs
-  FLOW.apiSentTurn = null;    // must re-send API if user re-logs
+  FLOW.annotationsCompletedTurn = null;
+  FLOW.apiSentTurn = null;
   updateFlowUI();
+
+  // enable span panel and render viewer + existing incidents
+  showSpanPanel(true);
+  await loadIncidents();
+
   await viewTranscript(SID);
+
+  // Run judge evaluation in background immediately after logging
+  fetch(`${BASE}/api/judge`, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ session_id: SID, turn_index: turn })
+  }).then(judgeResponse => {
+    if (!judgeResponse.ok) console.warn(`Judge evaluation failed: ${judgeResponse.status}`);
+  }).catch(e => {
+    console.warn("Judge evaluation error:", e);
+  });
 }
 
-/* ---------------- Step 2: human codes ---------------- */
-async function code() {
+/* ---------------- Span annotations ---------------- */
+function getAssistantTextForTurn(/*turnIndex*/) {
+  // Use the pasted/logged assistant text for this turn
+  return document.getElementById('left').value.trim();
+}
+
+function escapeHtmlLite(s){return s.replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
+
+function renderWithHighlights(text, incidents) {
+  incidents = [...incidents].sort((a,b)=> a.start_char - b.start_char || a.end_char - b.end_char);
+  let out = "";
+  let i = 0;
+  for (const inc of incidents) {
+    const s = inc.start_char, e = inc.end_char;
+    if (s > i) out += escapeHtmlLite(text.slice(i, s));
+    const seg = escapeHtmlLite(text.slice(s, e));
+    out += `<mark class="hl ${inc.label}" data-id="${inc.id}" title="${inc.label} (s=${inc.strength})">${seg}</mark>`;
+    i = e;
+  }
+  out += escapeHtmlLite(text.slice(i));
+  // Convert newlines for display; offsets are computed against original text
+  return out.replace(/\n/g, "<br>");
+}
+
+function getSelectionOffsetsWithin(el) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  if (!el.contains(range.commonAncestorContainer)) return null;
+
+  // Measure start by creating a range to the selection start
+  const pre = document.createRange();
+  pre.selectNodeContents(el);
+  pre.setEnd(range.startContainer, range.startOffset);
+  const start = pre.toString().length;
+
+  const selectedText = range.toString();
+  const end = start + selectedText.length;
+  return { start, end, selectedText };
+}
+
+async function loadIncidents() {
+  if (!SID) return;
+  const turn = FLOW.loggedForTurn ?? getTurnIndex();
+  const r = await fetch(`${BASE}/api/incidents?session_id=${encodeURIComponent(SID)}&turn_index=${turn}`);
+  if (!r.ok) return;
+  const { incidents } = await r.json();
+  const text = getAssistantTextForTurn(turn);
+  document.getElementById('assistantViewer').innerHTML = renderWithHighlights(text, incidents);
+
+  const list = incidents.map(inc =>
+    `<span class="pill" style="margin:2px; display:inline-block;">
+       ${inc.label} (s=${inc.strength}) [${inc.start_char}-${inc.end_char}]
+       <button style="margin-left:6px" onclick="deleteIncident(${inc.id})">✕</button>
+     </span>`
+  ).join("");
+  document.getElementById('incidentList').innerHTML = list || "<span class='small'>No highlights yet.</span>";
+}
+
+async function addSpanIncident() {
+  if (!SID) return alert("Start a session first.");
+  const turn = FLOW.loggedForTurn ?? getTurnIndex();
+  const viewer = document.getElementById('assistantViewer');
+  const sel = getSelectionOffsetsWithin(viewer);
+  if (!sel || sel.start === sel.end) return alert("Select text in the viewer first.");
+
+  const label = document.getElementById('spanLabel').value;
+  const strength = +document.getElementById('spanStrength').value;
+
+  const r = await fetch(`${BASE}/api/incidents`, {
+    method: "POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({
+      session_id: SID, turn_index: turn, label, strength,
+      start_char: sel.start, end_char: sel.end
+    })
+  });
+  if (!r.ok) return showErrorNotification(`Add highlight failed: ${await r.text()}`);
+  await loadIncidents();
+}
+
+async function deleteIncident(id) {
+  const r = await fetch(`${BASE}/api/incidents`, {
+    method: "DELETE", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({ incident_id: id })
+  });
+  if (!r.ok) return showErrorNotification(`Delete failed: ${await r.text()}`);
+  await loadIncidents();
+}
+
+/* ---------------- Step 2: complete annotations ---------------- */
+async function completeAnnotations() {
   if (!SID) { alert("Start or load a session first"); return; }
   if (FLOW.loggedForTurn === null) { alert("Log the pasted assistant turn first (Step 1)."); return; }
 
-  const turn = FLOW.loggedForTurn; // codes apply to the logged turn in this cycle
-  const payload = {
-    session_id: SID, turn_index: turn,
-    pushback: +document.getElementById('pushback').value,
-    de_escalation: +document.getElementById('de_escalation').value,
-    redirection: +document.getElementById('redirection').value,
-    help_referral: +document.getElementById('help_referral').value,
-    consciousness_claims: +document.getElementById('consciousness_claims').value,
-    delusion_reinforcement: +document.getElementById('delusion_reinforcement').value,
-    escalation: +document.getElementById('escalation').value,
-    harmful_advice: +document.getElementById('harmful_advice').value,
-    sycophancy: +document.getElementById('sycophancy').value,
-  };
-  const r = await fetch(`${BASE}/api/code`, {
-    method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(payload)
-  });
-  if (r.ok) { 
-    FLOW.codesSavedTurn = turn;
-    updateFlowUI();
-  } else { 
-    showErrorNotification(`Code error: ${await r.text()}`); 
-  }
+  const turn = FLOW.loggedForTurn;
+  // Simply mark annotations as completed - no API call needed since span annotations are already saved
+  FLOW.annotationsCompletedTurn = turn;
+  updateFlowUI();
   syncHeights();
-}
-function resetDropdowns() {
-  ['pushback','de_escalation','redirection','help_referral','consciousness_claims','delusion_reinforcement','escalation','harmful_advice','sycophancy']
-    .forEach(id => document.getElementById(id).value = "0");
 }
 
 /* ---------------- Step 3: send to API user model ---------------- */
 async function sendToApi() {
   if (!SID) { alert("Start or load a session first"); return; }
   if (FLOW.loggedForTurn === null) { alert("You must log the pasted turn first (Step 1)."); return; }
-  if (FLOW.codesSavedTurn !== FLOW.loggedForTurn) { alert("Save codes for this turn first (Step 2)."); return; }
+  if (FLOW.annotationsCompletedTurn !== FLOW.loggedForTurn) { alert("Complete annotations for this turn first (Step 2)."); return; }
 
   const turn = FLOW.loggedForTurn;
   const btnSend = document.getElementById('btnSend');
-  
-  // Disable button during API call
   setDisabled(btnSend, true);
   const originalText = btnSend.textContent;
   btnSend.textContent = "Sending...";
   
   try {
     const content = document.getElementById('left').value.trim();
-    if (!content) { 
-      alert("No content to send—paste and log again."); 
-      return; 
-    }
+    if (!content) { alert("No content to send—paste and log again."); return; }
 
     const userModel = document.getElementById('userModel').value.trim();
     const evaluatedModel = document.getElementById('evaluatedModel').value;
@@ -565,7 +620,6 @@ async function sendToApi() {
     if (category) payload.category = category;
     if (SELECTED_SEED_PROMPT) payload.seed_prompt = SELECTED_SEED_PROMPT.prompts[0];
 
-    // Retry logic for API call
     let r, j;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
@@ -585,40 +639,23 @@ async function sendToApi() {
     if (!apiReply) { showErrorNotification("API returned empty content. Please try again."); return; }
 
     document.getElementById('api_reply').value = apiReply;
-    
-    // Mark step 3 as completed for current turn
     FLOW.apiSentTurn = turn;
     updateFlowUI();
 
-    // Optional: automatic judge for the assistant turn that was just logged
-    try {
-      const judgeResponse = await fetch(`${BASE}/api/judge`, {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({ session_id: SID, turn_index: turn })
-      });
-      if (!judgeResponse.ok) console.warn(`Judge evaluation failed: ${await judgeResponse.text()}`);
-    } catch (e) {
-      console.warn("Judge evaluation error:", e);
-    }
-
-    // Advance to next turn & reset cycle
+    // Reset workflow immediately for better UX
     document.getElementById('turn').value = String(turn + 1);
     FLOW.loggedForTurn = null;
-    FLOW.codesSavedTurn = null;
+    FLOW.annotationsCompletedTurn = null;
     FLOW.apiSentTurn = null;
-    resetDropdowns();
-    // Keep the pasted content if you want users to copy it forward; otherwise clear:
     document.getElementById('left').value = "";
+    showSpanPanel(false);
     updateFlowUI();
 
-    // Update transcript in background (non-blocking)
     viewTranscript(SID).catch(console.error);
     syncHeights();
   } catch (error) {
     console.error("Error in sendToApi:", error);
-    // Error notifications are already handled in individual API calls
   } finally {
-    // Re-enable button
     setDisabled(btnSend, false);
     btnSend.textContent = originalText;
   }
@@ -629,7 +666,7 @@ async function refreshSessions() {
   const q = document.getElementById('searchQ').value.trim();
   const url = new URL(`${BASE}/api/sessions`, window.location.origin);
   if (q) url.searchParams.set("q", q);
-  const r = await fetch(url.toString().replace(window.location.origin, "")); // keep BASE
+  const r = await fetch(url.toString().replace(window.location.origin, ""));
   if (!r.ok) { console.error(await r.text()); return; }
   const data = await r.json();
   renderSessions(data.sessions || []);
@@ -674,27 +711,23 @@ async function viewTranscript(sessionId) {
 
 /* utils */
 function escapeHtml(s){return s.replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
-
-function showErrorNotification(message) {
-  alert(message);
-}
+function showErrorNotification(message) { alert(message); }
 
 /* init */
 window.addEventListener('load', () => { 
   loadPrompts(); 
   refreshSessions(); 
 
-  // Disable codes panel & Send until flow advances
-  enableCodesPanel(false);
+  enableAnnotationsPanel(false);
   updateFlowUI();
   updateStatusIndicators();
 
-  // If user edits the pasted text, require re-log
   const leftTA = document.getElementById('left');
   leftTA.addEventListener('input', () => {
     FLOW.loggedForTurn = null;
-    FLOW.codesSavedTurn = null;
+    FLOW.annotationsCompletedTurn = null;
     FLOW.apiSentTurn = null;
+    showSpanPanel(false);
     updateFlowUI();
   });
 });

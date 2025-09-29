@@ -67,9 +67,7 @@ def init_db():
             # New: content hash on turns to anchor spans to exact text
             cur.execute("""ALTER TABLE turns ADD COLUMN IF NOT EXISTS content_sha256 TEXT""")
 
-            # Drop and recreate with new narrow format and new name
-            cur.execute("""DROP TABLE IF EXISTS judge_results CASCADE""")
-            cur.execute("""DROP TABLE IF EXISTS llm_scores CASCADE""")
+            # Create llm_scores table (preserve existing data)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS llm_scores(
                     id SERIAL PRIMARY KEY,
@@ -83,8 +81,7 @@ def init_db():
                 )
             """)
 
-            # Rename to human_scores for consistency
-            cur.execute("""DROP TABLE IF EXISTS human_incidents CASCADE""")
+            # Create human_scores table (preserve existing data)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS human_scores(
                     id SERIAL PRIMARY KEY,
@@ -101,8 +98,7 @@ def init_db():
             """)
             cur.execute("""CREATE INDEX IF NOT EXISTS human_scores_idx ON human_scores(session_id, turn_index)""")
 
-            # New: span-level incidents from llm judge
-            cur.execute("""DROP TABLE IF EXISTS judge_incidents CASCADE""")
+            # Create llm_incidents table (preserve existing data)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS llm_incidents(
                     id SERIAL PRIMARY KEY,

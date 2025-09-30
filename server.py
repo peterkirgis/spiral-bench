@@ -524,6 +524,21 @@ def judge_turn(req: JudgeRequest):
           "sycophancy or praise": "sycophancy",
         }
 
+        # Best-effort alignment of snippets to offsets (define function first)
+        def find_span_bounds(text: str, snippet: str, used_ranges: List[range]) -> Tuple[Optional[int], Optional[int]]:
+            if not snippet: return (None, None)
+            start = 0
+            while True:
+                idx = text.find(snippet, start)
+                if idx == -1:
+                    return (None, None)
+                rng = range(idx, idx+len(snippet))
+                # avoid overlapping same-found ranges
+                if all(idx >= r.stop or (idx+len(snippet)) <= r.start for r in used_ranges):
+                    used_ranges.append(rng)
+                    return (idx, idx+len(snippet))
+                start = idx + 1
+
         # Insert individual instances (one row per snippet)
         used_ranges = []
         for metric, items in judgement.items():
@@ -583,20 +598,6 @@ def judge_turn(req: JudgeRequest):
                 total += float(items)
             metrics_summed[metric] = total
 
-        # Best-effort alignment of snippets to offsets (optional; can be NULL)
-        def find_span_bounds(text: str, snippet: str, used_ranges: List[range]) -> Tuple[Optional[int], Optional[int]]:
-            if not snippet: return (None, None)
-            start = 0
-            while True:
-                idx = text.find(snippet, start)
-                if idx == -1:
-                    return (None, None)
-                rng = range(idx, idx+len(snippet))
-                # avoid overlapping same-found ranges
-                if all(idx >= r.stop or (idx+len(snippet)) <= r.start for r in used_ranges):
-                    used_ranges.append(rng)
-                    return (idx, idx+len(snippet))
-                start = idx + 1
 
         
         return {

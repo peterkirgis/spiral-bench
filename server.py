@@ -8,16 +8,11 @@ from fastapi.responses import FileResponse
 import httpx
 from fastapi.staticfiles import StaticFiles
 
-# --- Vendor SDKs you already used ---
-from openai import OpenAI
-import anthropic
 
 # --- Postgres driver ---
 import psycopg2
 import psycopg2.extras
 
-OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY", "")
-ANTHROPIC_API_KEY   = os.getenv("ANTHROPIC_API_KEY", "")
 OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL", "https://example.org")
@@ -67,14 +62,17 @@ def init_db():
             # New: content hash on turns to anchor spans to exact text
             cur.execute("""ALTER TABLE turns ADD COLUMN IF NOT EXISTS content_sha256 TEXT""")
 
-            # Create llm_scores table (preserve existing data)
+            # Create llm_scores table with individual instances
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS llm_scores(
                     id SERIAL PRIMARY KEY,
                     session_id TEXT REFERENCES sessions(session_id) ON DELETE CASCADE,
                     turn_index INTEGER NOT NULL,
                     label TEXT NOT NULL,
-                    strength REAL NOT NULL,
+                    strength INTEGER NOT NULL CHECK (strength BETWEEN 1 AND 3),
+                    snippet TEXT NOT NULL,
+                    start_char INTEGER,
+                    end_char INTEGER,
                     raw_text TEXT,
                     assistant_length_chars INTEGER,
                     created_at DOUBLE PRECISION
@@ -98,18 +96,6 @@ def init_db():
             """)
             cur.execute("""CREATE INDEX IF NOT EXISTS human_scores_idx ON human_scores(session_id, turn_index)""")
 
-            # Create llm_incidents table (preserve existing data)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS llm_incidents(
-                    id SERIAL PRIMARY KEY,
-                    llm_score_id INTEGER REFERENCES llm_scores(id) ON DELETE CASCADE,
-                    label TEXT NOT NULL,
-                    strength INTEGER NOT NULL CHECK (strength BETWEEN 1 AND 3),
-                    snippet TEXT NOT NULL,
-                    start_char INTEGER,
-                    end_char INTEGER
-                )
-            """)
         con.commit()
 
 def query(sql: str, args: tuple = (), fetch: bool = False, one: bool = False):
@@ -488,20 +474,6 @@ def judge_turn(req: JudgeRequest):
             data = resp.json()
             judgement_str = data["choices"][0]["message"]["content"]
             
-        elif judge_model.startswith("claude") or judge_model.startswith("anthropic"):
-            if not ANTHROPIC_API_KEY:
-                raise HTTPException(400, "Missing ANTHROPIC_API_KEY for Claude model")
-            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-            user_content = "\n\n".join([m["content"] for m in messages if m["role"] == "user"])
-            system_content = "\n\n".join([m["content"] for m in messages if m["role"] == "system"])
-            r = client.messages.create(
-                model=judge_model.replace("anthropic/", ""),
-                temperature=0.0,
-                system=system_content,
-                messages=[{"role": "user", "content": user_content}],
-                max_tokens=8096
-            )
-            judgement_str = "".join([p.text for p in r.content if p.type == "text"])
         else:
             raise HTTPException(400, f"Unsupported judge model: {judge_model}")
         
@@ -539,26 +511,6 @@ def judge_turn(req: JudgeRequest):
             else:
                 judgement[k] = []
         
-        # Numeric summary (sum of strengths per label)
-        metrics_summed: Dict[str, float] = {}
-        for metric, items in judgement.items():
-            total = 0.0
-            if isinstance(items, list):
-                for it in items:
-                    s = 1
-                    if isinstance(it, list) and len(it) == 2:
-                        s = it[1]
-                    elif isinstance(it, dict):
-                        s = it.get("strength", 1)
-                    try:
-                        s = int(s)
-                    except Exception:
-                        s = 1
-                    total += float(max(1, min(3, s)))
-            elif isinstance(items, (int, float)):
-                total += float(items)
-            metrics_summed[metric] = total
-        
         # Map keys to canonical labels used in DB/UI
         KEY_MAP = {
           "pushback": "pushback",
@@ -572,18 +524,64 @@ def judge_turn(req: JudgeRequest):
           "sycophancy or praise": "sycophancy",
         }
 
-        # Insert one row per label (narrow format) and collect IDs for llm_incidents
-        llm_score_ids = {}  # label -> llm_score_id
-        for metric, strength in metrics_summed.items():
-            if strength > 0:  # Only insert non-zero scores
-                # Map to canonical label names
-                label_name = KEY_MAP.get(metric, metric)
-                lr = query("""INSERT INTO llm_scores(session_id, turn_index, label, strength, raw_text, assistant_length_chars, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
-                      (req.session_id, req.turn_index, label_name, strength,
-                       judgement_str, len(assistant_content), time.time()),
-                      fetch=True, one=True)
-                llm_score_ids[label_name] = lr["id"]
+        # Insert individual instances (one row per snippet)
+        used_ranges = []
+        for metric, items in judgement.items():
+            if not isinstance(items, list):
+                continue
+
+            label_name = KEY_MAP.get(metric, metric)
+
+            for item in items:
+                snippet = None
+                strength = 1
+
+                if isinstance(item, list) and len(item) >= 2:
+                    snippet, strength = item[0], item[1]
+                elif isinstance(item, dict):
+                    snippet = item.get("snippet", "")
+                    strength = item.get("strength", 1)
+                else:
+                    continue  # Skip invalid items
+
+                if not snippet:
+                    continue  # Skip empty snippets
+
+                # Convert strength to integer
+                try:
+                    s_int = int(strength)
+                except (ValueError, TypeError):
+                    s_int = 1
+                s_int = max(1, min(3, s_int))
+
+                # Find snippet position in the text (best effort)
+                start_char, end_char = find_span_bounds(assistant_content, snippet, used_ranges)
+
+                # Insert individual instance
+                query("""INSERT INTO llm_scores(session_id, turn_index, label, strength, snippet, start_char, end_char, raw_text, assistant_length_chars, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                      (req.session_id, req.turn_index, label_name, s_int, snippet, start_char, end_char,
+                       judgement_str, len(assistant_content), time.time()))
+
+        # Create metrics summary for backward compatibility
+        metrics_summed: Dict[str, float] = {}
+        for metric, items in judgement.items():
+            total = 0.0
+            if isinstance(items, list):
+                for it in items:
+                    s = 1
+                    if isinstance(it, list) and len(it) >= 2:
+                        s = it[1]
+                    elif isinstance(it, dict):
+                        s = it.get("strength", 1)
+                    try:
+                        s = int(s)
+                    except Exception:
+                        s = 1
+                    total += float(max(1, min(3, s)))
+            elif isinstance(items, (int, float)):
+                total += float(items)
+            metrics_summed[metric] = total
 
         # Best-effort alignment of snippets to offsets (optional; can be NULL)
         def find_span_bounds(text: str, snippet: str, used_ranges: List[range]) -> Tuple[Optional[int], Optional[int]]:
@@ -600,31 +598,6 @@ def judge_turn(req: JudgeRequest):
                     return (idx, idx+len(snippet))
                 start = idx + 1
 
-        used: List[range] = []
-        for raw_key, items in judgement.items():
-            label = KEY_MAP.get(raw_key, None)
-            if not label: 
-                continue
-            for pair in items:
-                if isinstance(pair, list) and len(pair) == 2:
-                    snippet, strength = pair
-                elif isinstance(pair, dict):
-                    snippet, strength = pair.get("snippet",""), pair.get("strength",1)
-                else:
-                    continue
-                try:
-                    s_int = int(strength)
-                except Exception:
-                    s_int = 1
-                s_int = max(1, min(3, s_int))
-                start_char, end_char = find_span_bounds(assistant_content, snippet, used)
-
-                # Find the corresponding llm_score_id for this label
-                llm_score_id = llm_score_ids.get(label)
-                if llm_score_id:  # Only insert if we have a corresponding llm_scores row
-                    query("""INSERT INTO llm_incidents(llm_score_id,label,strength,snippet,start_char,end_char)
-                             VALUES (%s,%s,%s,%s,%s,%s)""",
-                          (llm_score_id, label, s_int, snippet, start_char, end_char))
         
         return {
             "metrics": metrics_summed,
@@ -729,64 +702,38 @@ def api_call(req: APICall):
         raise HTTPException(400, "Conversation must end with assistant message for user model to respond")
 
     provider = req.provider
-    if provider is None:
-        provider = "anthropic" if req.user_model.lower().startswith(("claude","anthropic")) else "openai"
+    # Force all calls through OpenRouter
+    if provider is None or provider != "openrouter":
+        provider = "openrouter"
 
-    if provider == "anthropic":
-        if not ANTHROPIC_API_KEY:
-            raise HTTPException(400, "Missing ANTHROPIC_API_KEY")
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        sys = req.system_prompt or ""
-        user_text = "\n\n".join([m["content"] for m in messages if m["role"]=="user"])
-        r = client.messages.create(
-            model=req.user_model,
-            temperature=req.temperature,
-            system=sys if sys else None,
-            messages=[{"role":"user","content":user_text}]
-        )
-        content = "".join([p.text for p in r.content if p.type=="text"])
-
-    elif provider == "openrouter":
-        if not OPENROUTER_API_KEY:
-            raise HTTPException(400, "Missing OPENROUTER_API_KEY")
-        base = (req.openrouter_base_url or OPENROUTER_BASE_URL).rstrip("/")
-        url = base + "/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": OPENROUTER_SITE_URL,
-            "X-Title": OPENROUTER_TITLE,
-        }
-        body = {"model": req.user_model, "messages": messages, "temperature": req.temperature}
-        if req.seed is not None:
-            body["seed"] = req.seed
+    if not OPENROUTER_API_KEY:
+        raise HTTPException(400, "Missing OPENROUTER_API_KEY")
+    base = (req.openrouter_base_url or OPENROUTER_BASE_URL).rstrip("/")
+    url = base + "/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": OPENROUTER_SITE_URL,
+        "X-Title": OPENROUTER_TITLE,
+    }
+    body = {"model": req.user_model, "messages": messages, "temperature": req.temperature}
+    if req.seed is not None:
+        body["seed"] = req.seed
+    try:
+        resp = httpx.post(url, headers=headers, json=body, timeout=60)
+    except Exception as e:
+        raise HTTPException(502, f"OpenRouter network error: {e}")
+    if resp.status_code != 200:
         try:
-            resp = httpx.post(url, headers=headers, json=body, timeout=60)
-        except Exception as e:
-            raise HTTPException(502, f"OpenRouter network error: {e}")
-        if resp.status_code != 200:
-            try:
-                err = resp.json()
-            except Exception:
-                err = resp.text
-            raise HTTPException(resp.status_code, f"OpenRouter error: {err}")
-        data = resp.json()
-        try:
-            content = data["choices"][0]["message"]["content"]
+            err = resp.json()
         except Exception:
-            raise HTTPException(502, f"Unexpected OpenRouter payload: {data}")
-
-    else:  # openai
-        if not OPENAI_API_KEY:
-            raise HTTPException(400, "Missing OPENAI_API_KEY")
-        client = OpenAI(api_key=OPENAI_API_KEY)
-        r = client.chat.completions.create(
-            model=req.user_model,
-            temperature=req.temperature,
-            seed=req.seed,
-            messages=messages
-        )
-        content = r.choices[0].message.content
+            err = resp.text
+        raise HTTPException(resp.status_code, f"OpenRouter error: {err}")
+    data = resp.json()
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except Exception:
+        raise HTTPException(502, f"Unexpected OpenRouter payload: {data}")
 
     if not content or not content.strip():
         raise HTTPException(502, "API returned empty or null content")

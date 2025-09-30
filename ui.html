@@ -56,7 +56,12 @@
     mark.sycophancy { outline: 2px solid #888; }
 
     /* Selection preview */
-    .selection-preview { background: rgba(0, 123, 255, 0.3) !important; border: 2px dashed #007bff !important; }
+    .selection-preview {
+      background: transparent !important;
+      border-bottom: 2px solid #007bff !important;  /* underline-like */
+      outline: none !important;
+      pointer-events: none;
+    }
     .selection-info {
       position: sticky; top: 0; background: #f8f9fa; border: 1px solid #dee2e6;
       padding: 8px; margin: 8px 0; border-radius: 5px; font-size: 12px;
@@ -694,10 +699,7 @@ function normalizeSelectionPoint(container, offset, type) {
 
 function getOriginalTextFromViewer(el) {
   // Use stored original text as primary source
-  const storedText = el.getAttribute('data-original-text');
-  if (storedText) {
-    return storedText;
-  }
+  const storedText = el._originalText;
 
   // Fallback: reconstruct original text from data-char attributes
   const spans = el.querySelectorAll('[data-char-pos]');
@@ -724,7 +726,7 @@ async function loadIncidents() {
   const viewer = document.getElementById('assistantViewer');
 
   // Store original text and render with highlights
-  viewer.setAttribute('data-original-text', text);
+  viewer._originalText = text;
   viewer.innerHTML = renderWithHighlights(text, incidents);
 
   const list = incidents.map(inc =>
@@ -740,23 +742,28 @@ async function loadIncidents() {
 }
 
 function addSelectionListener(viewer) {
-  // Remove any existing listeners
   viewer.removeEventListener('mouseup', handleSelectionChange);
   viewer.removeEventListener('keyup', handleSelectionChange);
-
-  // Add new listeners
   viewer.addEventListener('mouseup', handleSelectionChange);
   viewer.addEventListener('keyup', handleSelectionChange);
 }
 
+let rafId = 0;
 function handleSelectionChange() {
+  if (rafId) return;
+  rafId = requestAnimationFrame(() => {
+    rafId = 0;
+    handleSelectionChangeCore();
+  });
+}
+
+function handleSelectionChangeCore() {
   const viewer = document.getElementById('assistantViewer');
   const selectionInfo = document.getElementById('selectionInfo');
   const selectionText = document.getElementById('selectionText');
   const selectionRange = document.getElementById('selectionRange');
   const selectionLength = document.getElementById('selectionLength');
 
-  // Clear any existing preview highlighting
   clearSelectionPreview(viewer);
 
   const selection = getSelectionOffsetsWithin(viewer);
@@ -766,35 +773,35 @@ function handleSelectionChange() {
     return;
   }
 
-  // Show selection info
   selectionInfo.style.display = 'block';
   selectionText.textContent = selection.selectedText;
   selectionRange.textContent = `Characters ${selection.start}-${selection.end}`;
   selectionLength.textContent = selection.selectedText.length;
 
-  // Add visual preview highlighting
   addSelectionPreview(viewer, selection.start, selection.end);
-
-  // Update add highlight button state
   updateAddHighlightButton();
 }
 
+let lastPreview = [];
+
 function clearSelectionPreview(viewer) {
-  const previewSpans = viewer.querySelectorAll('.selection-preview');
-  previewSpans.forEach(span => {
-    span.classList.remove('selection-preview');
-  });
+  for (const el of lastPreview) el.classList.remove('selection-preview');
+  lastPreview = [];
 }
 
 function addSelectionPreview(viewer, startPos, endPos) {
-  const characterSpans = viewer.querySelectorAll('[data-char-pos]');
-
-  characterSpans.forEach(span => {
-    const pos = parseInt(span.getAttribute('data-char-pos'), 10);
-    if (pos >= startPos && pos < endPos) {
-      span.classList.add('selection-preview');
+  clearSelectionPreview(viewer);
+  let el = viewer.querySelector(`[data-char-pos="${startPos}"]`);
+  if (!el) return;
+  for (let pos = startPos; pos < endPos; pos++) {
+    if (!el || +el.getAttribute('data-char-pos') !== pos) {
+      el = viewer.querySelector(`[data-char-pos="${pos}"]`);
+      if (!el) continue;
     }
-  });
+    el.classList.add('selection-preview');
+    lastPreview.push(el);
+    el = el.nextElementSibling;
+  }
 }
 
 function resetAnnotationControls() {

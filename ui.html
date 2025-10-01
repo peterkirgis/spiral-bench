@@ -369,7 +369,7 @@
           <tr>
             <th style="width: 8%;">Assigned</th>
             <th style="width: 6%;">RA</th>
-            <th style="width: 8%;">Category</th>
+            <th style="width: 8%;">Seed Prompt</th>
             <th style="width: 8%;">Model</th>
             <th style="width: 6%;">Target Turns</th>
             <th style="width: 8%;">Status</th>
@@ -1350,7 +1350,7 @@ async function refreshAssignments() {
         <tr>
           <td>${assignedDate}</td>
           <td>${assignment.ra_pseudonym || 'N/A'}</td>
-          <td>${assignment.scenario_category || 'N/A'}</td>
+          <td>${assignment.seed_prompt_id || 'N/A'}</td>
           <td>${assignment.assigned_model || 'N/A'}</td>
           <td>${assignment.target_turns || 0}</td>
           <td>

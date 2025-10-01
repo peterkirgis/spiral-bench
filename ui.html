@@ -16,8 +16,8 @@
     button { padding:8px 10px; border-radius:8px; border:1px solid #333; background:#fff; cursor:pointer; }
     .panel { margin-top:10px; border-top:1px solid #eee; padding-top:10px; }
     label { display:block; margin:6px 0 4px; font-weight:600; }
-    input[type=text], select, textarea { width: 100%; display: block; padding: 8px; font: inherit; }
-    input[type=text], select { height: var(--control-h); }
+    input[type=text], input[type=number], select, textarea { width: 100%; display: block; padding: 8px; font: inherit; }
+    input[type=text], input[type=number], select { height: var(--control-h); }
 
     /* textareas */
     #left { min-height: 150px; height: 180px; }
@@ -26,8 +26,8 @@
     #seedPromptText { resize: vertical; }
 
     /* sessions table */
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 8px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; vertical-align: top; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th, td { padding: 8px; border-bottom: 1px solid #eee; text-align: left; font-size: 14px; vertical-align: top; overflow: hidden; }
     tr:hover { background: #fafafa; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .pill { display:inline-block; padding:2px 6px; border:1px solid #ccc; border-radius:999px; font-size:12px; color:#444; }
@@ -78,13 +78,56 @@
     .label-btn:hover, .strength-btn:hover { border-color: #007bff; background: #f8f9ff; }
     .label-btn.selected { border-color: #007bff; background: #007bff; color: white; }
     .strength-btn.selected { border-color: #28a745; background: #28a745; color: white; }
+
+    /* Navigation tabs */
+    .nav-tabs {
+      display: flex;
+      border-bottom: 2px solid #ddd;
+      margin: 0 0 20px 0;
+      background: #f8f9fa;
+      border-radius: 10px 10px 0 0;
+    }
+    .nav-tab {
+      padding: 12px 24px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 500;
+      border-radius: 10px 10px 0 0;
+      transition: all 0.2s ease;
+    }
+    .nav-tab:hover {
+      background: #e9ecef;
+    }
+    .nav-tab.active {
+      background: #007bff;
+      color: white;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+
+    /* Status styling for logging */
+    .status-complete { background: #28a745; color: white; }
+    .status-incomplete { background: #dc3545; color: white; }
+    .status-partial { background: #ffc107; color: black; }
   </style>
 </head>
 <body>
   <h2>SpiralBench Chat Interface Replication</h2>
 
-  <div class="grid">
-    <div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="switchTab('conversation', this)">Conversation</button>
+    <button class="nav-tab" onclick="switchTab('assignments', this)">Task Assignments</button>
+  </div>
+
+  <div id="conversation-tab" class="tab-content active">
+    <div class="grid">
+      <div>
       <label>RA pseudonym</label>
       <input id="ra" type="text" placeholder="eg. RA07" />
     </div>
@@ -157,8 +200,6 @@
         <button onclick="copyApiReply()">Copy API Reply</button>
       </div>
       <div style="height:105px;"></div>
-    </div>
-
     </div>
   </div>
 
@@ -256,7 +297,96 @@
     <div id="transcriptBox" class="transcript">
       <div class="small">Select a session above to view its transcript.</div>
     </div>
-  </div>
+
+  </div> <!-- closes the sessions panel -->
+
+</div> <!-- End conversation tab -->
+
+<div id="assignments-tab" class="tab-content">
+    <div style="margin-bottom: 20px;">
+      <h3>Task Assignments</h3>
+      <p class="small">Assign specific seed prompts, models, and turn targets to RAs</p>
+    </div>
+
+    <div style="margin-bottom: 20px;">
+      <button onclick="showAssignmentForm()" style="background: #28a745; color: white; border-color: #28a745;">Create New Assignment</button>
+      <button onclick="refreshAssignments()" style="margin-left: 10px;">Refresh Assignments</button>
+    </div>
+
+    <div id="assignment-form" style="display: none; margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 10px; background: #f9f9f9;">
+      <h4 style="margin-top: 0;">New Task Assignment</h4>
+      <div class="grid2">
+        <div>
+          <label>RA Pseudonym <span style="color: red;">*</span></label>
+          <input type="text" id="assign-ra-pseudonym" placeholder="eg. RA07" required />
+        </div>
+        <div>
+          <label>Assigned Model <span style="color: red;">*</span></label>
+          <select id="assign-model" required>
+            <option value="">Select model...</option>
+            <option value="gpt-4o">GPT-4o</option>
+            <option value="gpt-5">GPT-5</option>
+            <option value="gpt-5-thinking">GPT-5 Thinking</option>
+            <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+          </select>
+        </div>
+        <div>
+          <label>Target Turns <span style="color: red;">*</span></label>
+          <input type="number" id="assign-target-turns" min="1" placeholder="e.g., 5" required />
+        </div>
+        <div>
+          <label>Scenario Category <span style="color: red;">*</span></label>
+          <select id="assign-scenario-category" onchange="filterAssignmentSeedPrompts()" required>
+            <option value="">Select category...</option>
+            <option value="spiral_tropes">Spiral Tropes</option>
+            <option value="intellectual_exploration">Intellectual Exploration</option>
+            <option value="theory_development">Theory Development</option>
+            <option value="exploring_conspiracies">Exploring Conspiracies</option>
+            <option value="mania_psychosis">Mania/Psychosis</option>
+            <option value="exploring_ai_consciousness">Exploring AI Consciousness</option>
+          </select>
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <label>Seed Prompt <span style="color: red;">*</span></label>
+          <select id="assign-seed-prompt" required>
+            <option value="">Select a seed prompt...</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top: 15px;">
+        <label>Instructions/Notes</label>
+        <textarea id="assign-notes" placeholder="Any specific instructions for this assignment..." style="height: 80px;"></textarea>
+      </div>
+      <div style="margin-top: 15px;">
+        <button onclick="saveAssignment()" style="background: #007bff; color: white; border-color: #007bff;">Create Assignment</button>
+        <button onclick="cancelAssignmentForm()" style="margin-left: 10px;">Cancel</button>
+      </div>
+    </div>
+
+    <div id="assignments-table-container">
+      <table id="assignments-table">
+        <thead>
+          <tr>
+            <th style="width: 8%;">Assigned</th>
+            <th style="width: 6%;">RA</th>
+            <th style="width: 8%;">Category</th>
+            <th style="width: 8%;">Model</th>
+            <th style="width: 6%;">Target Turns</th>
+            <th style="width: 8%;">Status</th>
+            <th style="width: 6%;">Actual Turns</th>
+            <th style="width: 20%;">Session ID</th>
+            <th style="width: 20%;">Notes</th>
+            <th style="width: 10%;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="assignments-table-body">
+          <tr>
+            <td colspan="10" style="text-align: center; color: #666;">Loading assignments...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+</div> <!-- End assignments tab -->
 
 <script>
 let SID = null;
@@ -1049,7 +1179,333 @@ window.addEventListener('load', () => {
     showSpanPanel(false);
     updateFlowUI();
   });
+
+  // Load assignments when page loads
+  loadSeedPromptsForAssignment();
 });
+
+// Tab switching functionality
+function switchTab(tabName, btnEl) {
+  // Hide all tab content
+  document.querySelectorAll('.tab-content').forEach(content => {
+    content.classList.remove('active');
+  });
+
+  // Remove active class from all tabs
+  document.querySelectorAll('.nav-tab').forEach(tab => {
+    tab.classList.remove('active');
+  });
+
+  // Show selected tab content and mark tab as active
+  document.getElementById(tabName + '-tab').classList.add('active');
+  btnEl.classList.add('active');   // use the actual button, not event.target
+
+  if (tabName === 'assignments') {
+    refreshAssignments();
+    loadSeedPromptsForAssignment();
+  }
+}
+
+// Task Assignment functionality
+function showAssignmentForm() {
+  document.getElementById('assignment-form').style.display = 'block';
+  loadSeedPromptsForAssignment();
+}
+
+function cancelAssignmentForm() {
+  document.getElementById('assignment-form').style.display = 'none';
+  clearAssignmentForm();
+}
+
+function clearAssignmentForm() {
+  document.getElementById('assign-ra-pseudonym').value = '';
+  document.getElementById('assign-model').value = '';
+  document.getElementById('assign-target-turns').value = '';
+  document.getElementById('assign-scenario-category').value = '';
+  document.getElementById('assign-seed-prompt').value = '';
+  document.getElementById('assign-notes').value = '';
+}
+
+let ASSIGNMENT_PROMPTS_DATA = [];
+
+async function loadSeedPromptsForAssignment() {
+  try {
+    const response = await fetch(`${BASE}/api/prompts`);
+    if (!response.ok) return;
+
+    const data = await response.json();
+    ASSIGNMENT_PROMPTS_DATA = data.prompts || [];
+    filterAssignmentSeedPrompts();
+  } catch (error) {
+    console.error('Error loading seed prompts:', error);
+  }
+}
+
+function filterAssignmentSeedPrompts() {
+  const selectedCategory = document.getElementById('assign-scenario-category').value;
+  const selectEl = document.getElementById('assign-seed-prompt');
+  selectEl.innerHTML = '<option value="">Select a seed prompt...</option>';
+
+  const filtered = selectedCategory
+    ? ASSIGNMENT_PROMPTS_DATA.filter(p => p.category === selectedCategory)
+    : ASSIGNMENT_PROMPTS_DATA;
+
+  filtered.forEach(prompt => {
+    const option = document.createElement('option');
+    option.value = prompt.prompt_id;
+    option.textContent = `${prompt.prompt_id} (${prompt.category || 'General'})`;
+    option.setAttribute('data-full-text', prompt.prompts && prompt.prompts[0] ? prompt.prompts[0] : '');
+    option.setAttribute('data-category', prompt.category || '');
+    selectEl.appendChild(option);
+  });
+}
+
+async function saveAssignment() {
+  const assignmentData = {
+    ra_pseudonym: document.getElementById('assign-ra-pseudonym').value.trim(),
+    assigned_model: document.getElementById('assign-model').value,
+    target_turns: parseInt(document.getElementById('assign-target-turns').value),
+    scenario_category: document.getElementById('assign-scenario-category').value,
+    seed_prompt_id: document.getElementById('assign-seed-prompt').value,
+    notes: document.getElementById('assign-notes').value.trim()
+  };
+
+  // Get seed prompt text if selected
+  const seedSelect = document.getElementById('assign-seed-prompt');
+  if (seedSelect.value) {
+    const selectedOption = seedSelect.options[seedSelect.selectedIndex];
+    assignmentData.seed_prompt_text = selectedOption.getAttribute('data-full-text');
+    if (!assignmentData.scenario_category) {
+      assignmentData.scenario_category = selectedOption.getAttribute('data-category');
+    }
+  }
+
+  if (!assignmentData.ra_pseudonym || !assignmentData.assigned_model || !assignmentData.target_turns || !assignmentData.scenario_category || !assignmentData.seed_prompt_id) {
+    alert('Please fill in required fields: RA Pseudonym, Model, Target Turns, Scenario Category, and Seed Prompt');
+    return;
+  }
+
+  try {
+    const response = await fetch(`${BASE}/api/task_assignments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(assignmentData)
+    });
+
+    if (response.ok) {
+      cancelAssignmentForm();
+      refreshAssignments();
+      alert('Task assignment created successfully!');
+    } else {
+      const error = await response.text();
+      alert('Error creating assignment: ' + error);
+    }
+  } catch (error) {
+    console.error('Error creating assignment:', error);
+    alert('Error creating assignment: ' + error.message);
+  }
+}
+
+let SESSIONS_LIST = [];
+
+async function loadSessionsList() {
+  try {
+    const response = await fetch(`${BASE}/api/sessions`);
+    if (!response.ok) return;
+    const data = await response.json();
+    SESSIONS_LIST = data.sessions || [];
+  } catch (error) {
+    console.error('Error loading sessions:', error);
+  }
+}
+
+async function refreshAssignments() {
+  const tableBody = document.getElementById('assignments-table-body');
+
+  try {
+    // Load sessions list for dropdowns
+    await loadSessionsList();
+
+    const response = await fetch(`${BASE}/api/task_assignments`);
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch assignments');
+    }
+
+    const data = await response.json();
+    const assignments = data.assignments || [];
+
+    if (assignments.length === 0) {
+      tableBody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #666;">No assignments found</td></tr>';
+      return;
+    }
+
+    tableBody.innerHTML = assignments.map(assignment => {
+      const assignedDate = assignment.assigned_at ? new Date(assignment.assigned_at * 1000).toLocaleDateString() : 'N/A';
+      const statusClass = assignment.status === 'completed' ? 'status-complete' :
+                         assignment.status === 'failed' ? 'status-incomplete' :
+                         assignment.status === 'in_progress' ? 'status-partial' : '';
+
+      return `
+        <tr>
+          <td>${assignedDate}</td>
+          <td>${assignment.ra_pseudonym || 'N/A'}</td>
+          <td>${assignment.scenario_category || 'N/A'}</td>
+          <td>${assignment.assigned_model || 'N/A'}</td>
+          <td>${assignment.target_turns || 0}</td>
+          <td>
+            <select onchange="updateAssignmentStatus(${assignment.id}, this.value)" style="font-size: 12px; width: 100%;">
+              <option value="assigned" ${assignment.status === 'assigned' ? 'selected' : ''}>Assigned</option>
+              <option value="in_progress" ${assignment.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
+              <option value="completed" ${assignment.status === 'completed' ? 'selected' : ''}>Completed</option>
+              <option value="failed" ${assignment.status === 'failed' ? 'selected' : ''}>Failed</option>
+            </select>
+          </td>
+          <td>
+            <input type="number" value="${assignment.actual_turns || 0}" min="0"
+                   onchange="updateActualTurns(${assignment.id}, this.value)"
+                   style="width: 50px; font-size: 12px;" />
+          </td>
+          <td class="mono">
+            <select onchange="updateSessionId(${assignment.id}, this.value)" style="width: 100%; font-size: 11px; box-sizing: border-box; max-width: 100%;">
+              <option value="">Select session...</option>
+              ${SESSIONS_LIST.map(s => `<option value="${s.session_id}" ${assignment.session_id === s.session_id ? 'selected' : ''}>${s.session_id} (${s.ra_pseudonym || 'N/A'})</option>`).join('')}
+            </select>
+          </td>
+          <td><div style="white-space: normal; word-wrap: break-word; overflow-wrap: break-word;">
+            ${assignment.notes || 'N/A'}
+          </div></td>
+          <td>
+            <button onclick="editAssignmentNotes(${assignment.id}, '${(assignment.notes || '').replace(/'/g, "\\'")}') " style="background: #ffc107; color: black; border-color: #ffc107; padding: 4px 8px; font-size: 12px; margin-right: 4px;">Notes</button>
+            <button onclick="deleteAssignment(${assignment.id})" style="background: #dc3545; color: white; border-color: #dc3545; padding: 4px 8px; font-size: 12px;">Delete</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+  } catch (error) {
+    console.error('Error fetching assignments:', error);
+    tableBody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #dc3545;">Error loading assignments</td></tr>';
+  }
+}
+
+async function updateAssignmentStatus(assignmentId, newStatus) {
+  try {
+    const response = await fetch(`${BASE}/api/task_assignments/${assignmentId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      alert('Error updating status: ' + error);
+    }
+  } catch (error) {
+    console.error('Error updating status:', error);
+    alert('Error updating status: ' + error.message);
+  }
+}
+
+async function updateActualTurns(assignmentId, actualTurns) {
+  try {
+    const response = await fetch(`${BASE}/api/task_assignments/${assignmentId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actual_turns: parseInt(actualTurns) || 0 })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      alert('Error updating turns: ' + error);
+    }
+  } catch (error) {
+    console.error('Error updating turns:', error);
+  }
+}
+
+async function updateSessionId(assignmentId, sessionId) {
+  if (!sessionId) return; // Don't update if empty selection
+
+  try {
+    const response = await fetch(`${BASE}/api/task_assignments/${assignmentId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId.trim() })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      alert('Error updating session ID: ' + error);
+      refreshAssignments(); // Refresh to reset the dropdown
+    }
+    // Don't refresh on success to avoid losing other unsaved changes
+  } catch (error) {
+    console.error('Error updating session ID:', error);
+    alert('Error updating session ID: ' + error.message);
+  }
+}
+
+function editAssignmentNotes(assignmentId, currentNotes) {
+  const newNotes = prompt('Edit notes for this assignment:', currentNotes);
+  if (newNotes !== null) {
+    updateAssignmentNotes(assignmentId, newNotes);
+  }
+}
+
+async function updateAssignmentNotes(assignmentId, notes) {
+  try {
+    const response = await fetch(`${BASE}/api/task_assignments/${assignmentId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: notes })
+    });
+
+    if (response.ok) {
+      // Find the row and update only the notes cell (column 8)
+      const rows = document.querySelectorAll('#assignments-table-body tr');
+      rows.forEach(row => {
+        const notesBtn = row.querySelector(`button[onclick*="editAssignmentNotes(${assignmentId}"]`);
+        if (notesBtn) {
+          const notesCell = row.cells[8];
+          if (notesCell) {
+            notesCell.innerHTML = `<div style="white-space: normal; word-wrap: break-word; overflow-wrap: break-word;">${notes || 'N/A'}</div>`;
+          }
+          // Update the onclick attribute with the new notes
+          notesBtn.setAttribute('onclick', `editAssignmentNotes(${assignmentId}, '${(notes || '').replace(/'/g, "\\'")}') `);
+        }
+      });
+    } else {
+      const error = await response.text();
+      alert('Error updating notes: ' + error);
+    }
+  } catch (error) {
+    console.error('Error updating notes:', error);
+    alert('Error updating notes: ' + error.message);
+  }
+}
+
+async function deleteAssignment(assignmentId) {
+  if (!confirm('Are you sure you want to delete this assignment?')) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${BASE}/api/task_assignments/${assignmentId}`, {
+      method: 'DELETE'
+    });
+
+    if (response.ok) {
+      refreshAssignments();
+    } else {
+      const error = await response.text();
+      alert('Error deleting assignment: ' + error);
+    }
+  } catch (error) {
+    console.error('Error deleting assignment:', error);
+    alert('Error deleting assignment: ' + error.message);
+  }
+}
 </script>
 </body>
 </html>

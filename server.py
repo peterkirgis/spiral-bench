@@ -96,6 +96,26 @@ def init_db():
             """)
             cur.execute("""CREATE INDEX IF NOT EXISTS human_scores_idx ON human_scores(session_id, turn_index)""")
 
+            # Task assignments for RAs
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS task_assignments(
+                    id SERIAL PRIMARY KEY,
+                    ra_pseudonym TEXT NOT NULL,
+                    seed_prompt_id TEXT,
+                    seed_prompt_text TEXT,
+                    scenario_category TEXT,
+                    assigned_model TEXT NOT NULL,
+                    target_turns INTEGER NOT NULL,
+                    status TEXT CHECK (status IN ('assigned', 'in_progress', 'completed', 'failed')) DEFAULT 'assigned',
+                    notes TEXT,
+                    session_id TEXT,
+                    actual_turns INTEGER DEFAULT 0,
+                    assigned_at DOUBLE PRECISION DEFAULT EXTRACT(EPOCH FROM NOW()),
+                    updated_at DOUBLE PRECISION DEFAULT EXTRACT(EPOCH FROM NOW())
+                )
+            """)
+            cur.execute("""CREATE INDEX IF NOT EXISTS task_assignments_idx ON task_assignments(ra_pseudonym, status)""")
+
         con.commit()
 
 def query(sql: str, args: tuple = (), fetch: bool = False, one: bool = False):
@@ -757,6 +777,93 @@ def get_prompts():
         return {"prompts": prompts}
     except FileNotFoundError:
         return {"prompts": []}
+
+@app.get("/api/task_assignments")
+def get_task_assignments():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, ra_pseudonym, seed_prompt_id, seed_prompt_text, scenario_category,
+                       assigned_model, target_turns, status, notes, session_id, actual_turns,
+                       assigned_at, updated_at
+                FROM task_assignments
+                ORDER BY assigned_at DESC
+            """)
+            assignments = cur.fetchall()
+
+            return {
+                "assignments": [
+                    {
+                        "id": assignment[0],
+                        "ra_pseudonym": assignment[1],
+                        "seed_prompt_id": assignment[2],
+                        "seed_prompt_text": assignment[3],
+                        "scenario_category": assignment[4],
+                        "assigned_model": assignment[5],
+                        "target_turns": assignment[6],
+                        "status": assignment[7],
+                        "notes": assignment[8],
+                        "session_id": assignment[9],
+                        "actual_turns": assignment[10],
+                        "assigned_at": assignment[11],
+                        "updated_at": assignment[12]
+                    }
+                    for assignment in assignments
+                ]
+            }
+
+@app.post("/api/task_assignments")
+def create_task_assignment(assignment: dict):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO task_assignments
+                (ra_pseudonym, seed_prompt_id, seed_prompt_text, scenario_category,
+                 assigned_model, target_turns, status, notes, assigned_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (
+                assignment.get('ra_pseudonym'),
+                assignment.get('seed_prompt_id'),
+                assignment.get('seed_prompt_text'),
+                assignment.get('scenario_category'),
+                assignment.get('assigned_model'),
+                assignment.get('target_turns'),
+                assignment.get('status', 'assigned'),
+                assignment.get('notes'),
+                time.time(),
+                time.time()
+            ))
+            assignment_id = cur.fetchone()[0]
+            conn.commit()
+            return {"id": assignment_id, "message": "Task assignment created"}
+
+@app.put("/api/task_assignments/{assignment_id}")
+def update_task_assignment(assignment_id: int, assignment: dict):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE task_assignments
+                SET status = %s, notes = %s, session_id = %s, actual_turns = %s, updated_at = %s
+                WHERE id = %s
+            """, (
+                assignment.get('status'),
+                assignment.get('notes'),
+                assignment.get('session_id'),
+                assignment.get('actual_turns'),
+                time.time(),
+                assignment_id
+            ))
+            conn.commit()
+            return {"message": "Task assignment updated"}
+
+@app.delete("/api/task_assignments/{assignment_id}")
+def delete_task_assignment(assignment_id: int):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM task_assignments WHERE id = %s", (assignment_id,))
+            conn.commit()
+            return {"message": "Task assignment deleted"}
 
 @app.get("/")
 def serve_ui():

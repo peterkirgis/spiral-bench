@@ -4,5 +4,4 @@ experiments
 *.pyc
 *.db*
 *.sh
-*.sql
 .vscode

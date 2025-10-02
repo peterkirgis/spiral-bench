@@ -174,7 +174,10 @@
       ID: <span id="promptId"></span> | Category: <span id="promptCategory"></span>
     </div>
     <textarea id="seedPromptText" readonly style="width:100%; height:80px; font-family:inherit;"></textarea>
-    <button onclick="copySeedPrompt()" style="margin-top:6px;">Copy to Clipboard</button>
+    <div style="margin-top:6px; display:flex; align-items:center; gap:8px;">
+      <button onclick="copySeedPrompt()">Copy to Clipboard</button>
+      <span class="small" style="color:#111010;">Important Note: You need to click this button to copy and log the seed prompt to the session</span>
+    </div>
   </div>
 
   <div class="row" style="margin-top:12px;">
@@ -660,11 +663,72 @@ async function logTurn() {
 
 /* ---------------- Span annotations ---------------- */
 function getAssistantTextForTurn(/*turnIndex*/) {
-  // Use the pasted/logged assistant text for this turn
-  return document.getElementById('left').value.trim();
+  // Use the pasted/logged assistant text for this turn; preserve whitespace and normalize EOLs
+  const v = document.getElementById('left').value;
+  return v.replace(/\r\n/g, '\n');
 }
 
 function escapeHtmlLite(s){return s.replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
+
+// --- Highlighting helpers (DOM-range based, no per-character spans) ---
+function normalizeEOL(s){ return (s || '').replace(/\r\n/g, '\n'); }
+
+// Convert a (container, offset) endpoint into a linear index inside `root`
+function linearOffset(root, container, offset) {
+  const r = document.createRange();
+  r.setStart(root, 0);
+  try { r.setEnd(container, offset); } catch { return null; }
+  return r.toString().length; // UTF-16 code units (matches JS string indexing)
+}
+
+// Map a linear [0..text.length] offset to a DOM Text node + local offset
+function offsetToDom(root, target) {
+  const it = document.createNodeIterator(root, NodeFilter.SHOW_TEXT);
+  let node, acc = 0, last = null;
+  while ((node = it.nextNode())) {
+    const len = node.data.length;
+    if (acc + len >= target) return { node, offset: target - acc };
+    acc += len; last = node;
+  }
+  if (target === acc && last) return { node: last, offset: last.data.length };
+  return null;
+}
+
+function rangeFromOffsets(root, start, end) {
+  const s = offsetToDom(root, start), e = offsetToDom(root, end);
+  if (!s || !e) return null;
+  const r = document.createRange();
+  r.setStart(s.node, s.offset);
+  r.setEnd(e.node, e.offset);
+  return r;
+}
+
+function applyHighlights(viewer, text, incidents) {
+  const norm = normalizeEOL(text);
+  // Render as plain text; your CSS uses `white-space: pre-wrap` so newlines show.
+  viewer.textContent = norm;
+
+  const sorted = [...incidents].sort((a,b)=> a.start_char - b.start_char || a.end_char - b.end_char);
+  for (const inc of sorted) {
+    const start = Math.max(0, Math.min(inc.start_char, norm.length));
+    const end   = Math.max(start, Math.min(inc.end_char, norm.length));
+    if (start === end) continue;
+
+    const range = rangeFromOffsets(viewer, start, end);
+    if (!range) continue;
+
+    const mark = document.createElement('mark');
+    mark.className = `hl ${inc.label}`;
+    mark.dataset.id = inc.id;
+    mark.dataset.start = String(start);
+    mark.dataset.end = String(end);
+    mark.title = `${inc.label} (s=${inc.strength})`;
+
+    const frag = range.extractContents();
+    mark.appendChild(frag);
+    range.insertNode(mark);
+  }
+}
 
 function renderWithHighlights(text, incidents) {
   incidents = [...incidents].sort((a,b)=> a.start_char - b.start_char || a.end_char - b.end_char);
@@ -704,17 +768,14 @@ function getSelectionOffsetsWithin(el) {
   const range = sel.getRangeAt(0);
   if (!el.contains(range.commonAncestorContainer)) return null;
 
-  // Find the character positions using our data attributes
-  const startPos = getCharacterPositionFromNode(range.startContainer, range.startOffset);
-  const endPos = getCharacterPositionFromNode(range.endContainer, range.endOffset);
+  const start = linearOffset(el, range.startContainer, range.startOffset);
+  const end   = linearOffset(el, range.endContainer, range.endOffset);
+  if (start == null || end == null) return null;
 
-  if (startPos === null || endPos === null) return null;
-
-  // Get the actual selected text by reconstructing it from character positions
+  const a = Math.min(start, end);
+  const b = Math.max(start, end);
   const originalText = getOriginalTextFromViewer(el);
-  const selectedText = originalText.slice(startPos, endPos);
-
-  return { start: startPos, end: endPos, selectedText };
+  return { start: a, end: b, selectedText: originalText.slice(a, b) };
 }
 
 function getCharacterPositionFromNode(node, offset) {
@@ -828,22 +889,7 @@ function normalizeSelectionPoint(container, offset, type) {
 }
 
 function getOriginalTextFromViewer(el) {
-  // Use stored original text as primary source
-  const storedText = el._originalText;
-
-  // Fallback: reconstruct original text from data-char attributes
-  const spans = el.querySelectorAll('[data-char-pos]');
-  const chars = [];
-
-  spans.forEach(span => {
-    const pos = parseInt(span.getAttribute('data-char-pos'), 10);
-    const char = span.getAttribute('data-char');
-    if (char !== null) {
-      chars[pos] = char === '\n' ? '\n' : char;
-    }
-  });
-
-  return chars.join('');
+  return normalizeEOL(el._originalText || el.textContent || "");
 }
 
 async function loadIncidents() {
@@ -852,12 +898,12 @@ async function loadIncidents() {
   const r = await fetch(`${BASE}/api/incidents?session_id=${encodeURIComponent(SID)}&turn_index=${turn}`);
   if (!r.ok) return;
   const { incidents } = await r.json();
-  const text = getAssistantTextForTurn(turn);
+  const raw = getAssistantTextForTurn(turn);
+  const text = normalizeEOL(raw);
   const viewer = document.getElementById('assistantViewer');
 
-  // Store original text and render with highlights
   viewer._originalText = text;
-  viewer.innerHTML = renderWithHighlights(text, incidents);
+  applyHighlights(viewer, text, incidents);
 
   const list = incidents.map(inc =>
     `<span class="pill" style="margin:2px; display:inline-block;">
@@ -971,11 +1017,17 @@ async function addSpanIncident() {
   const label = selectedLabelBtn.getAttribute('data-label');
   const strength = +selectedStrengthBtn.getAttribute('data-strength');
 
+  // Clamp to canonical text length
+  const rawText = getOriginalTextFromViewer(viewer);
+  const max = rawText.length;
+  let start = Math.max(0, Math.min(sel.start, max));
+  let end   = Math.max(start, Math.min(sel.end,   max));
+
   const r = await fetch(`${BASE}/api/incidents`, {
     method: "POST", headers:{"Content-Type":"application/json"},
     body: JSON.stringify({
       session_id: SID, turn_index: turn, label, strength,
-      start_char: sel.start, end_char: sel.end
+      start_char: start, end_char: end
     })
   });
   if (!r.ok) return showErrorNotification(`Add highlight failed: ${await r.text()}`);
@@ -1372,11 +1424,13 @@ async function refreshAssignments() {
               ${SESSIONS_LIST.map(s => `<option value="${s.session_id}" ${assignment.session_id === s.session_id ? 'selected' : ''}>${s.session_id} (${s.ra_pseudonym || 'N/A'})</option>`).join('')}
             </select>
           </td>
-          <td><div style="white-space: normal; word-wrap: break-word; overflow-wrap: break-word;">
-            ${assignment.notes || 'N/A'}
-          </div></td>
           <td>
-            <button onclick="editAssignmentNotes(${assignment.id}, '${(assignment.notes || '').replace(/'/g, "\\'")}') " style="background: #ffc107; color: black; border-color: #ffc107; padding: 4px 8px; font-size: 12px; margin-right: 4px;">Notes</button>
+            <div style="display: flex; gap: 4px; align-items: center;">
+              <textarea id="notes-${assignment.id}" style="width: 100%; min-height: 60px; font-size: 12px; padding: 4px; resize: vertical;">${assignment.notes || ''}</textarea>
+              <button onclick="saveNotesInline(${assignment.id})" style="background: #28a745; color: white; border-color: #28a745; padding: 4px 8px; font-size: 11px; white-space: nowrap;">Save</button>
+            </div>
+          </td>
+          <td>
             <button onclick="deleteAssignment(${assignment.id})" style="background: #dc3545; color: white; border-color: #dc3545; padding: 4px 8px; font-size: 12px;">Delete</button>
           </td>
         </tr>
@@ -1446,14 +1500,12 @@ async function updateSessionId(assignmentId, sessionId) {
   }
 }
 
-function editAssignmentNotes(assignmentId, currentNotes) {
-  const newNotes = prompt('Edit notes for this assignment:', currentNotes);
-  if (newNotes !== null) {
-    updateAssignmentNotes(assignmentId, newNotes);
-  }
-}
+async function saveNotesInline(assignmentId) {
+  const textarea = document.getElementById(`notes-${assignmentId}`);
+  if (!textarea) return;
 
-async function updateAssignmentNotes(assignmentId, notes) {
+  const notes = textarea.value.trim();
+
   try {
     const response = await fetch(`${BASE}/api/task_assignments/${assignmentId}`, {
       method: 'PUT',
@@ -1462,19 +1514,7 @@ async function updateAssignmentNotes(assignmentId, notes) {
     });
 
     if (response.ok) {
-      // Find the row and update only the notes cell (column 8)
-      const rows = document.querySelectorAll('#assignments-table-body tr');
-      rows.forEach(row => {
-        const notesBtn = row.querySelector(`button[onclick*="editAssignmentNotes(${assignmentId}"]`);
-        if (notesBtn) {
-          const notesCell = row.cells[8];
-          if (notesCell) {
-            notesCell.innerHTML = `<div style="white-space: normal; word-wrap: break-word; overflow-wrap: break-word;">${notes || 'N/A'}</div>`;
-          }
-          // Update the onclick attribute with the new notes
-          notesBtn.setAttribute('onclick', `editAssignmentNotes(${assignmentId}, '${(notes || '').replace(/'/g, "\\'")}') `);
-        }
-      });
+      alert('Notes saved successfully!');
     } else {
       const error = await response.text();
       alert('Error updating notes: ' + error);

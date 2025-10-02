@@ -842,19 +842,35 @@ def create_task_assignment(assignment: dict):
 def update_task_assignment(assignment_id: int, assignment: dict):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                UPDATE task_assignments
-                SET status = %s, notes = %s, session_id = %s, actual_turns = %s, updated_at = %s
-                WHERE id = %s
-            """, (
-                assignment.get('status'),
-                assignment.get('notes'),
-                assignment.get('session_id'),
-                assignment.get('actual_turns'),
-                time.time(),
-                assignment_id
-            ))
-            conn.commit()
+            # Build dynamic UPDATE query to only update provided fields
+            update_fields = []
+            params = []
+
+            if 'status' in assignment:
+                update_fields.append("status = %s")
+                params.append(assignment['status'])
+            if 'notes' in assignment:
+                update_fields.append("notes = %s")
+                params.append(assignment['notes'])
+            if 'session_id' in assignment:
+                update_fields.append("session_id = %s")
+                params.append(assignment['session_id'])
+            if 'actual_turns' in assignment:
+                update_fields.append("actual_turns = %s")
+                params.append(assignment['actual_turns'])
+
+            # Always update the timestamp
+            update_fields.append("updated_at = %s")
+            params.append(time.time())
+
+            # Add the assignment_id for WHERE clause
+            params.append(assignment_id)
+
+            if len(update_fields) > 1:  # More than just updated_at
+                query = f"UPDATE task_assignments SET {', '.join(update_fields)} WHERE id = %s"
+                cur.execute(query, tuple(params))
+                conn.commit()
+
             return {"message": "Task assignment updated"}
 
 @app.delete("/api/task_assignments/{assignment_id}")

@@ -96,6 +96,24 @@ def init_db():
             """)
             cur.execute("""CREATE INDEX IF NOT EXISTS human_scores_idx ON human_scores(session_id, turn_index)""")
 
+            # Second human scores for intercoder reliability
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS second_human_scores(
+                    id SERIAL PRIMARY KEY,
+                    session_id TEXT REFERENCES sessions(session_id) ON DELETE CASCADE,
+                    ra_pseudonym TEXT NOT NULL,
+                    turn_index INTEGER NOT NULL,
+                    label TEXT NOT NULL,
+                    strength INTEGER NOT NULL CHECK (strength BETWEEN 1 AND 3),
+                    start_char INTEGER NOT NULL,
+                    end_char INTEGER NOT NULL,
+                    snippet TEXT NOT NULL,
+                    content_sha256 TEXT NOT NULL,
+                    created_at DOUBLE PRECISION
+                )
+            """)
+            cur.execute("""CREATE INDEX IF NOT EXISTS second_human_scores_idx ON second_human_scores(session_id, turn_index)""")
+
             # Task assignments for RAs
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS task_assignments(
@@ -318,12 +336,20 @@ class SpanIncidentDelete(BaseModel):
     incident_id: int
 
 @app.get("/api/incidents")
-def list_incidents(session_id: str, turn_index: int):
-    rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at
-                    FROM human_scores
-                    WHERE session_id=%s AND turn_index=%s
-                    ORDER BY start_char ASC, end_char ASC""",
-                 (session_id, turn_index), fetch=True)
+def list_incidents(session_id: str, turn_index: int = None):
+    if turn_index is not None:
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index
+                        FROM human_scores
+                        WHERE session_id=%s AND turn_index=%s
+                        ORDER BY start_char ASC, end_char ASC""",
+                     (session_id, turn_index), fetch=True)
+    else:
+        # Return all incidents for the session
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index
+                        FROM human_scores
+                        WHERE session_id=%s
+                        ORDER BY turn_index ASC, start_char ASC, end_char ASC""",
+                     (session_id,), fetch=True)
     return {"incidents": rows}
 
 @app.post("/api/incidents")
@@ -351,6 +377,72 @@ def create_incident(inc: SpanIncident):
 @app.delete("/api/incidents")
 def delete_incident(req: SpanIncidentDelete):
     query("DELETE FROM human_scores WHERE id=%s", (req.incident_id,))
+    return {"ok": True}
+
+# ────────────────────────────── LLM Scores ──────────────────────────────
+
+@app.get("/api/scores")
+def list_llm_scores(session_id: str, turn_index: int = None):
+    if turn_index is not None:
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index
+                        FROM llm_scores
+                        WHERE session_id=%s AND turn_index=%s
+                        ORDER BY start_char ASC, end_char ASC""",
+                     (session_id, turn_index), fetch=True)
+    else:
+        # Return all LLM scores for the session
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index
+                        FROM llm_scores
+                        WHERE session_id=%s
+                        ORDER BY turn_index ASC, start_char ASC, end_char ASC""",
+                     (session_id,), fetch=True)
+    return {"scores": rows}
+
+# ────────────────────────────── Second Human Scores (Intercoder Reliability) ───────────────────────────
+
+class SecondHumanScore(BaseModel):
+    session_id: str
+    ra_pseudonym: str
+    turn_index: int
+    label: str
+    strength: int
+    start_char: int
+    end_char: int
+
+@app.get("/api/second_human_scores")
+def list_second_human_scores(session_id: str, turn_index: int):
+    rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at
+                    FROM second_human_scores
+                    WHERE session_id=%s AND turn_index=%s
+                    ORDER BY start_char ASC, end_char ASC""",
+                 (session_id, turn_index), fetch=True)
+    return {"scores": rows}
+
+@app.post("/api/second_human_scores")
+def create_second_human_score(score: SecondHumanScore):
+    if score.label not in LABELS:
+        raise HTTPException(400, f"Unknown label '{score.label}'")
+    # Fetch assistant text for the turn
+    row = query("""SELECT content, content_sha256 FROM turns
+                   WHERE session_id=%s AND turn_index=%s AND role='assistant'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (score.session_id, score.turn_index), fetch=True, one=True)
+    if not row:
+        raise HTTPException(404, "Assistant turn not found")
+    text = row["content"] or ""
+    if not (0 <= score.start_char < score.end_char <= len(text)):
+        raise HTTPException(400, "Invalid span offsets")
+    snippet = text[score.start_char:score.end_char]
+    query("""INSERT INTO second_human_scores(session_id,ra_pseudonym,turn_index,label,strength,
+             start_char,end_char,snippet,content_sha256,created_at)
+             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+          (score.session_id, score.ra_pseudonym, score.turn_index, score.label, score.strength,
+           score.start_char, score.end_char, snippet, row["content_sha256"], time.time()))
+    return {"ok": True}
+
+@app.delete("/api/second_human_scores/{score_id}")
+def delete_second_human_score(score_id: int):
+    query("DELETE FROM second_human_scores WHERE id=%s", (score_id,))
     return {"ok": True}
 
 # ────────────────────────────── Judge (LLM grader) ───────────────────────────

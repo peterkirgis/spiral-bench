@@ -55,6 +55,11 @@
     mark.harmful_advice { outline: 2px solid #c00; }
     mark.sycophancy { outline: 2px solid #888; }
 
+    /* Comparison view - dual colored highlights */
+    mark.human-grade { background: rgba(100, 149, 237, 0.3); padding: 0 2px; border-radius: 3px; }
+    mark.llm-grade { background: rgba(255, 140, 0, 0.3); padding: 0 2px; border-radius: 3px; }
+    mark.both-grade { background: rgba(147, 112, 219, 0.4); padding: 0 2px; border-radius: 3px; }
+
     /* Selection preview */
     .selection-preview {
       background: transparent !important;
@@ -115,14 +120,96 @@
     .status-complete { background: #28a745; color: white; }
     .status-incomplete { background: #dc3545; color: white; }
     .status-partial { background: #ffc107; color: black; }
+
+    /* Tooltip styling */
+    .tab-info {
+      display: inline-block;
+      margin-left: 6px;
+      width: 16px;
+      height: 16px;
+      background: #6c757d;
+      color: white;
+      border-radius: 50%;
+      font-size: 11px;
+      line-height: 16px;
+      text-align: center;
+      cursor: help;
+      position: relative;
+      font-weight: bold;
+    }
+    .nav-tab.active .tab-info {
+      background: rgba(255, 255, 255, 0.3);
+    }
+    .tab-info:hover {
+      background: #495057;
+    }
+    .nav-tab.active .tab-info:hover {
+      background: rgba(255, 255, 255, 0.5);
+    }
+    .tab-info .tooltip-text {
+      visibility: hidden;
+      width: 280px;
+      background-color: #333;
+      color: #fff;
+      text-align: left;
+      border-radius: 6px;
+      padding: 10px 12px;
+      position: absolute;
+      z-index: 1000;
+      bottom: 125%;
+      left: 50%;
+      margin-left: -140px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      font-size: 13px;
+      font-weight: normal;
+      line-height: 1.4;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .tab-info .tooltip-text::after {
+      content: "";
+      position: absolute;
+      top: 100%;
+      left: 50%;
+      margin-left: -5px;
+      border-width: 5px;
+      border-style: solid;
+      border-color: #333 transparent transparent transparent;
+    }
+    .tab-info:hover .tooltip-text {
+      visibility: visible;
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
   <h2>SpiralBench Chat Interface Replication</h2>
 
   <div class="nav-tabs">
-    <button class="nav-tab active" onclick="switchTab('conversation', this)">Conversation</button>
-    <button class="nav-tab" onclick="switchTab('assignments', this)">Task Assignments</button>
+    <button class="nav-tab active" onclick="switchTab('conversation', this)">
+      Conversation
+      <span class="tab-info">i
+        <span class="tooltip-text">Run conversations with the AI model, annotate responses in real-time, and send evaluations to the judge model for automated grading.</span>
+      </span>
+    </button>
+    <button class="nav-tab" onclick="switchTab('assignments', this)">
+      Task Assignments
+      <span class="tab-info">i
+        <span class="tooltip-text">Manage and track task assignments for research assistants. Create new assignments, view session details, and monitor completion status.</span>
+      </span>
+    </button>
+    <button class="nav-tab" onclick="switchTab('intercoder', this)">
+      Intercoder Reliability
+      <span class="tab-info">i
+        <span class="tooltip-text">Second grader interface for calculating intercoder reliability. Grade conversations independently to compare with the first grader's annotations.</span>
+      </span>
+    </button>
+    <button class="nav-tab" onclick="switchTab('comparison', this)">
+      Grade Comparison
+      <span class="tab-info">i
+        <span class="tooltip-text">Compare human grader annotations with LLM judge annotations side-by-side. Visualize agreement and disagreement with color-coded highlights. (Password protected)</span>
+      </span>
+    </button>
   </div>
 
   <div id="conversation-tab" class="tab-content active">
@@ -391,11 +478,155 @@
     </div>
 </div> <!-- End assignments tab -->
 
+<div id="intercoder-tab" class="tab-content">
+  <div style="margin-bottom: 20px;">
+    <h3>Intercoder Reliability - Second Grading</h3>
+    <p class="small">Review and grade assistant responses for intercoder reliability analysis</p>
+  </div>
+
+  <div class="grid2" style="margin-bottom: 20px;">
+    <div>
+      <label>RA Pseudonym</label>
+      <input id="intercoder-ra" type="text" placeholder="eg. RA07" />
+    </div>
+    <div>
+      <label>Session ID</label>
+      <select id="intercoder-session">
+        <option value="">Select a session...</option>
+      </select>
+    </div>
+  </div>
+
+  <div style="margin-bottom: 20px;">
+    <button onclick="loadIntercoderSession()" style="background: #007bff; color: white; border-color: #007bff;">Load Session</button>
+    <button onclick="refreshIntercoderSessions()" style="margin-left: 10px;">Refresh Sessions</button>
+    <span class="small" id="intercoder-status"></span>
+  </div>
+
+  <div id="intercoder-content" style="display: none;">
+    <!-- Turn Navigation -->
+    <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 10px; background: #f9f9f9;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+        <h4 style="margin: 0;">Turn Navigation</h4>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button onclick="previousTurn()" id="intercoder-prev-btn">← Previous</button>
+          <span id="intercoder-turn-info" style="font-weight: 600; padding: 0 15px;"></span>
+          <button onclick="nextTurn()" id="intercoder-next-btn">Next →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- User Message Display -->
+    <div style="margin-bottom: 20px;">
+      <h4>User Message (Turn <span id="intercoder-user-turn"></span>)</h4>
+      <div id="intercoder-user-content" class="transcript" style="background: #e3f2fd; border-color: #2196f3;"></div>
+    </div>
+
+    <!-- Assistant Response Display & Grading -->
+    <div style="margin-bottom: 20px;">
+      <h4>Assistant Response (Turn <span id="intercoder-assistant-turn"></span>)</h4>
+
+      <!-- Annotation Controls -->
+      <div style="margin-bottom: 12px; padding: 12px; border: 1px solid #ddd; border-radius: 10px; background: #fff;">
+        <div style="margin-bottom: 8px;">
+          <label style="display:block; margin-bottom:4px; font-weight:600;">Label</label>
+          <div id="intercoder-label-buttons" style="display:flex; gap:4px; flex-wrap:wrap;">
+            <button class="label-btn" data-label="pushback">Pushback</button>
+            <button class="label-btn" data-label="de_escalation">De-escalation</button>
+            <button class="label-btn" data-label="redirection">Redirection</button>
+            <button class="label-btn" data-label="help_referral">Help Referral</button>
+            <button class="label-btn" data-label="consciousness_claims">Consciousness Claims</button>
+            <button class="label-btn" data-label="delusion_reinforcement">Delusion Reinforcement</button>
+            <button class="label-btn" data-label="escalation">Escalation</button>
+            <button class="label-btn" data-label="harmful_advice">Harmful Advice</button>
+            <button class="label-btn" data-label="sycophancy">Sycophancy</button>
+          </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+          <label style="display:block; margin-bottom:4px; font-weight:600;">Strength</label>
+          <div id="intercoder-strength-buttons" style="display:flex; gap:4px;">
+            <button class="strength-btn" data-strength="1">1 - Weak</button>
+            <button class="strength-btn" data-strength="2">2 - Moderate</button>
+            <button class="strength-btn" data-strength="3">3 - Strong</button>
+          </div>
+        </div>
+        <div style="margin-top: 12px;">
+          <button id="intercoder-add-highlight-btn" onclick="addIntercoderHighlight()" disabled>Add highlight from selection</button>
+          <span class="small">Select text in the viewer and choose label + strength, then click "Add highlight".</span>
+        </div>
+      </div>
+
+      <!-- Selection Info -->
+      <div id="intercoder-selection-info" class="selection-info" style="display:none;">
+        <strong>Selection Preview:</strong>
+        <div id="intercoder-selection-text" style="font-family: monospace; background: #fff; padding: 4px; border-radius: 3px; margin-top: 4px;"></div>
+        <div class="selection-details">
+          <span id="intercoder-selection-range"></span> | <span id="intercoder-selection-length"></span> characters
+        </div>
+      </div>
+
+      <!-- Assistant Content Viewer -->
+      <div id="intercoder-assistant-viewer" class="transcript" style="margin-top: 8px; min-height: 200px; user-select: text;"></div>
+
+      <!-- Incident List -->
+      <div id="intercoder-incident-list" class="small" style="margin-top: 8px;"></div>
+
+      <!-- Complete Grading Button -->
+      <div style="margin-top: 16px; display: flex; gap: 8px; align-items: center;">
+        <button onclick="completeIntercoderTurn()" id="intercoder-complete-btn" style="background: #28a745; color: white; border-color: #28a745; font-weight: 600;">✓ Complete Grading for This Turn</button>
+        <span id="intercoder-turn-status" class="small" style="font-weight: 600;"></span>
+      </div>
+    </div>
+  </div>
+</div> <!-- End intercoder tab -->
+
+<!-- Comparison Tab -->
+<div id="comparison-tab" class="tab-content">
+  <h3>Grade Comparison: Human vs LLM</h3>
+  <p class="small">Compare human grader annotations with LLM grader annotations side-by-side.</p>
+
+  <!-- Selection Filters -->
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 10px; background: #f9f9f9;">
+    <div>
+      <label>Scenario Category</label>
+      <select id="comparison-category" onchange="filterComparisonScenarios()">
+        <option value="">Select a category...</option>
+      </select>
+    </div>
+    <div>
+      <label>Scenario</label>
+      <select id="comparison-scenario" onchange="filterComparisonSessions()" disabled>
+        <option value="">Select a scenario...</option>
+      </select>
+    </div>
+    <div>
+      <label>Session</label>
+      <select id="comparison-session" onchange="loadComparisonData()" disabled>
+        <option value="">Select a session...</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Legend -->
+  <div id="comparison-legend" style="display: none; margin-bottom: 20px; padding: 12px; border: 1px solid #ddd; border-radius: 10px; background: #fff;">
+    <strong>Highlight Legend:</strong>
+    <span style="margin-left: 15px;"><mark class="human-grade" style="padding: 2px 6px;">Human Only</mark></span>
+    <span style="margin-left: 10px;"><mark class="llm-grade" style="padding: 2px 6px;">LLM Only</mark></span>
+    <span style="margin-left: 10px;"><mark class="both-grade" style="padding: 2px 6px;">Both Graders</mark></span>
+  </div>
+
+  <!-- Conversation Display -->
+  <div id="comparison-conversation" style="display: none;">
+    <!-- Turns will be dynamically inserted here -->
+  </div>
+</div> <!-- End comparison tab -->
+
 <script>
 let SID = null;
 let PROMPTS_DATA = [];
 let SELECTED_SEED_PROMPT = null;
 const BASE = ""; // set to your API base if not same-origin
+let COMPARISON_TAB_AUTHENTICATED = false; // Password protection for comparison tab
 
 const FIXED_SOURCE = "chat_ui";
 const CHAT_UI_ROLE = "assistant";
@@ -1238,6 +1469,16 @@ window.addEventListener('load', () => {
 
 // Tab switching functionality
 function switchTab(tabName, btnEl) {
+  // Password protection for comparison tab
+  if (tabName === 'comparison' && !COMPARISON_TAB_AUTHENTICATED) {
+    const password = prompt('Enter password to access Grade Comparison:');
+    if (password !== 'zeynep') {
+      alert('Incorrect password. Access denied.');
+      return; // Don't switch tabs
+    }
+    COMPARISON_TAB_AUTHENTICATED = true;
+  }
+
   // Hide all tab content
   document.querySelectorAll('.tab-content').forEach(content => {
     content.classList.remove('active');
@@ -1255,6 +1496,14 @@ function switchTab(tabName, btnEl) {
   if (tabName === 'assignments') {
     refreshAssignments();
     loadSeedPromptsForAssignment();
+  }
+
+  if (tabName === 'intercoder') {
+    refreshIntercoderSessions();
+  }
+
+  if (tabName === 'comparison') {
+    initComparisonTab();
   }
 }
 
@@ -1545,6 +1794,701 @@ async function deleteAssignment(assignmentId) {
     console.error('Error deleting assignment:', error);
     alert('Error deleting assignment: ' + error.message);
   }
+}
+
+// ==================== Intercoder Reliability Functions ====================
+
+let INTERCODER_STATE = {
+  sessionId: null,
+  raPseudonym: null,
+  transcript: [],
+  assistantTurns: [], // Array of {userTurn, assistantTurn, userContent, assistantContent}
+  currentIndex: 0
+};
+
+async function refreshIntercoderSessions() {
+  try {
+    const response = await fetch(`${BASE}/api/sessions`);
+    if (!response.ok) {
+      console.error('Failed to fetch sessions');
+      return;
+    }
+
+    const data = await response.json();
+    const sessions = data.sessions || [];
+
+    const select = document.getElementById('intercoder-session');
+    select.innerHTML = '<option value="">Select a session...</option>';
+
+    sessions.forEach(session => {
+      const option = document.createElement('option');
+      option.value = session.session_id;
+      option.textContent = `${session.session_id.substring(0, 8)}... - ${session.ra_pseudonym || 'N/A'} - ${session.scenario_id || 'N/A'}`;
+      select.appendChild(option);
+    });
+
+    document.getElementById('intercoder-status').textContent = `${sessions.length} session(s) available`;
+  } catch (error) {
+    console.error('Error loading sessions:', error);
+    alert('Error loading sessions: ' + error.message);
+  }
+}
+
+async function loadIntercoderSession() {
+  const raPseudonym = document.getElementById('intercoder-ra').value.trim();
+  const sessionId = document.getElementById('intercoder-session').value.trim();
+
+  if (!raPseudonym || !sessionId) {
+    alert('Please enter both RA Pseudonym and Session ID');
+    return;
+  }
+
+  try {
+    const response = await fetch(`${BASE}/api/session/${encodeURIComponent(sessionId)}/transcript`);
+    if (!response.ok) {
+      alert('Failed to load session. Please check the Session ID.');
+      return;
+    }
+
+    const data = await response.json();
+    const transcript = data.transcript || [];
+
+    // Build pairs of user + assistant turns
+    const pairs = [];
+    for (let i = 0; i < transcript.length; i++) {
+      const turn = transcript[i];
+      if (turn.role === 'assistant') {
+        // Find the previous user turn
+        const userTurn = transcript.slice(0, i).reverse().find(t => t.role === 'user');
+        if (userTurn) {
+          pairs.push({
+            userTurn: userTurn.turn_index,
+            assistantTurn: turn.turn_index,
+            userContent: userTurn.content,
+            assistantContent: turn.content
+          });
+        }
+      }
+    }
+
+    if (pairs.length === 0) {
+      alert('No assistant turns found in this session.');
+      return;
+    }
+
+    INTERCODER_STATE.sessionId = sessionId;
+    INTERCODER_STATE.raPseudonym = raPseudonym;
+    INTERCODER_STATE.transcript = transcript;
+    INTERCODER_STATE.assistantTurns = pairs;
+    INTERCODER_STATE.currentIndex = 0;
+
+    document.getElementById('intercoder-status').textContent = `Loaded ${pairs.length} assistant turn(s)`;
+    document.getElementById('intercoder-content').style.display = 'block';
+
+    setupIntercoderAnnotationButtons();
+    displayIntercoderTurn();
+  } catch (error) {
+    console.error('Error loading session:', error);
+    alert('Error loading session: ' + error.message);
+  }
+}
+
+function setupIntercoderAnnotationButtons() {
+  // Setup label buttons
+  document.querySelectorAll('#intercoder-label-buttons .label-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#intercoder-label-buttons .label-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      updateIntercoderAddButton();
+    });
+  });
+
+  // Setup strength buttons
+  document.querySelectorAll('#intercoder-strength-buttons .strength-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#intercoder-strength-buttons .strength-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      updateIntercoderAddButton();
+    });
+  });
+}
+
+function displayIntercoderTurn() {
+  const pair = INTERCODER_STATE.assistantTurns[INTERCODER_STATE.currentIndex];
+  if (!pair) return;
+
+  // Update turn info
+  document.getElementById('intercoder-turn-info').textContent = `Turn ${INTERCODER_STATE.currentIndex + 1} of ${INTERCODER_STATE.assistantTurns.length}`;
+  document.getElementById('intercoder-user-turn').textContent = pair.userTurn;
+  document.getElementById('intercoder-assistant-turn').textContent = pair.assistantTurn;
+
+  // Display user content
+  document.getElementById('intercoder-user-content').textContent = pair.userContent;
+
+  // Display assistant content
+  const viewer = document.getElementById('intercoder-assistant-viewer');
+  viewer.textContent = pair.assistantContent;
+  viewer._originalText = pair.assistantContent;
+
+  // Load existing highlights
+  loadIntercoderHighlights();
+
+  // Add selection listener
+  viewer.removeEventListener('mouseup', handleIntercoderSelectionChange);
+  viewer.removeEventListener('keyup', handleIntercoderSelectionChange);
+  viewer.addEventListener('mouseup', handleIntercoderSelectionChange);
+  viewer.addEventListener('keyup', handleIntercoderSelectionChange);
+
+  // Update navigation buttons
+  document.getElementById('intercoder-prev-btn').disabled = INTERCODER_STATE.currentIndex === 0;
+  document.getElementById('intercoder-next-btn').disabled = INTERCODER_STATE.currentIndex === INTERCODER_STATE.assistantTurns.length - 1;
+
+  // Clear completion status
+  document.getElementById('intercoder-turn-status').textContent = '';
+
+  // Reset selection
+  resetIntercoderSelection();
+}
+
+function previousTurn() {
+  if (INTERCODER_STATE.currentIndex > 0) {
+    INTERCODER_STATE.currentIndex--;
+    displayIntercoderTurn();
+  }
+}
+
+function nextTurn() {
+  if (INTERCODER_STATE.currentIndex < INTERCODER_STATE.assistantTurns.length - 1) {
+    INTERCODER_STATE.currentIndex++;
+    displayIntercoderTurn();
+  }
+}
+
+async function completeIntercoderTurn() {
+  const pair = INTERCODER_STATE.assistantTurns[INTERCODER_STATE.currentIndex];
+  if (!pair) return;
+
+  const statusSpan = document.getElementById('intercoder-turn-status');
+
+  try {
+    // Check if there are any annotations for this turn
+    const response = await fetch(`${BASE}/api/second_human_scores?session_id=${encodeURIComponent(INTERCODER_STATE.sessionId)}&turn_index=${pair.assistantTurn}`);
+    if (!response.ok) {
+      statusSpan.textContent = '✗ Error checking annotations';
+      statusSpan.style.color = '#dc3545';
+      return;
+    }
+
+    const data = await response.json();
+    const scores = data.scores || [];
+
+    if (scores.length === 0) {
+      statusSpan.textContent = '⚠ No annotations yet - add at least one highlight';
+      statusSpan.style.color = '#ff9800';
+      return;
+    }
+
+    // Mark as complete
+    statusSpan.textContent = `✓ Turn ${INTERCODER_STATE.currentIndex + 1} graded (${scores.length} highlight${scores.length > 1 ? 's' : ''})`;
+    statusSpan.style.color = '#28a745';
+
+    // Auto-advance to next turn after a brief delay
+    setTimeout(() => {
+      if (INTERCODER_STATE.currentIndex < INTERCODER_STATE.assistantTurns.length - 1) {
+        nextTurn();
+      } else {
+        statusSpan.textContent = '✓ All turns completed!';
+      }
+    }, 1000);
+
+  } catch (error) {
+    console.error('Error completing turn:', error);
+    statusSpan.textContent = '✗ Error completing turn';
+    statusSpan.style.color = '#dc3545';
+  }
+}
+
+let intercoderRafId = 0;
+function handleIntercoderSelectionChange() {
+  if (intercoderRafId) return;
+  intercoderRafId = requestAnimationFrame(() => {
+    intercoderRafId = 0;
+    const viewer = document.getElementById('intercoder-assistant-viewer');
+    const selectionInfo = document.getElementById('intercoder-selection-info');
+    const selectionText = document.getElementById('intercoder-selection-text');
+    const selectionRange = document.getElementById('intercoder-selection-range');
+    const selectionLength = document.getElementById('intercoder-selection-length');
+
+    const selection = getSelectionOffsetsWithin(viewer);
+    if (!selection || selection.start === selection.end) {
+      selectionInfo.style.display = 'none';
+      updateIntercoderAddButton();
+      return;
+    }
+
+    selectionInfo.style.display = 'block';
+    selectionText.textContent = selection.selectedText;
+    selectionRange.textContent = `Characters ${selection.start}-${selection.end}`;
+    selectionLength.textContent = selection.selectedText.length;
+    updateIntercoderAddButton();
+  });
+}
+
+function updateIntercoderAddButton() {
+  const hasLabel = document.querySelector('#intercoder-label-buttons .label-btn.selected');
+  const hasStrength = document.querySelector('#intercoder-strength-buttons .strength-btn.selected');
+  const hasSelection = document.getElementById('intercoder-selection-info').style.display !== 'none';
+
+  const addBtn = document.getElementById('intercoder-add-highlight-btn');
+  addBtn.disabled = !(hasLabel && hasStrength && hasSelection);
+}
+
+function resetIntercoderSelection() {
+  document.querySelectorAll('#intercoder-label-buttons .label-btn').forEach(btn => btn.classList.remove('selected'));
+  document.querySelectorAll('#intercoder-strength-buttons .strength-btn').forEach(btn => btn.classList.remove('selected'));
+  document.getElementById('intercoder-selection-info').style.display = 'none';
+  document.getElementById('intercoder-add-highlight-btn').disabled = true;
+  if (window.getSelection) {
+    window.getSelection().removeAllRanges();
+  }
+}
+
+async function addIntercoderHighlight() {
+  const viewer = document.getElementById('intercoder-assistant-viewer');
+  const sel = getSelectionOffsetsWithin(viewer);
+  if (!sel || sel.start === sel.end) {
+    alert("Select text in the viewer first.");
+    return;
+  }
+
+  const selectedLabelBtn = document.querySelector('#intercoder-label-buttons .label-btn.selected');
+  const selectedStrengthBtn = document.querySelector('#intercoder-strength-buttons .strength-btn.selected');
+
+  if (!selectedLabelBtn || !selectedStrengthBtn) {
+    alert("Please select a label and strength first.");
+    return;
+  }
+
+  const label = selectedLabelBtn.getAttribute('data-label');
+  const strength = +selectedStrengthBtn.getAttribute('data-strength');
+  const pair = INTERCODER_STATE.assistantTurns[INTERCODER_STATE.currentIndex];
+
+  try {
+    const response = await fetch(`${BASE}/api/second_human_scores`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        session_id: INTERCODER_STATE.sessionId,
+        ra_pseudonym: INTERCODER_STATE.raPseudonym,
+        turn_index: pair.assistantTurn,
+        label: label,
+        strength: strength,
+        start_char: sel.start,
+        end_char: sel.end
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      alert(`Add highlight failed: ${error}`);
+      return;
+    }
+
+    await loadIntercoderHighlights();
+    resetIntercoderSelection();
+  } catch (error) {
+    console.error('Error adding highlight:', error);
+    alert('Error adding highlight: ' + error.message);
+  }
+}
+
+async function loadIntercoderHighlights() {
+  const pair = INTERCODER_STATE.assistantTurns[INTERCODER_STATE.currentIndex];
+  if (!pair) return;
+
+  try {
+    const response = await fetch(`${BASE}/api/second_human_scores?session_id=${encodeURIComponent(INTERCODER_STATE.sessionId)}&turn_index=${pair.assistantTurn}`);
+    if (!response.ok) return;
+
+    const data = await response.json();
+    const incidents = data.scores || [];
+
+    const viewer = document.getElementById('intercoder-assistant-viewer');
+    const text = normalizeEOL(pair.assistantContent);
+    viewer._originalText = text;
+    applyHighlights(viewer, text, incidents);
+
+    const list = incidents.map(inc =>
+      `<span class="pill" style="margin:2px; display:inline-block;">
+         ${inc.label} (s=${inc.strength}) [${inc.start_char}-${inc.end_char}]
+         <button style="margin-left:6px" onclick="deleteIntercoderHighlight(${inc.id})">✕</button>
+       </span>`
+    ).join("");
+    document.getElementById('intercoder-incident-list').innerHTML = list || "<span class='small'>No highlights yet.</span>";
+  } catch (error) {
+    console.error('Error loading highlights:', error);
+  }
+}
+
+async function deleteIntercoderHighlight(id) {
+  try {
+    const response = await fetch(`${BASE}/api/second_human_scores/${id}`, {
+      method: "DELETE"
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      alert(`Delete failed: ${error}`);
+      return;
+    }
+
+    await loadIntercoderHighlights();
+  } catch (error) {
+    console.error('Error deleting highlight:', error);
+    alert('Error deleting highlight: ' + error.message);
+  }
+}
+
+// ========================================
+// Comparison Tab Functions
+// ========================================
+
+let COMPARISON_DATA = {
+  categories: [],
+  scenarios: [],
+  sessions: []
+};
+
+async function initComparisonTab() {
+  try {
+    // Load prompts/scenarios
+    const response = await fetch(`${BASE}/api/prompts`);
+    if (!response.ok) {
+      console.error('Failed to fetch prompts');
+      return;
+    }
+    const data = await response.json();
+    COMPARISON_DATA.scenarios = data.prompts || [];
+
+    // Extract unique categories
+    const categories = [...new Set(COMPARISON_DATA.scenarios.map(p => p.category))];
+    COMPARISON_DATA.categories = categories.sort();
+
+    // Populate category dropdown
+    const categorySelect = document.getElementById('comparison-category');
+    categorySelect.innerHTML = '<option value="">Select a category...</option>';
+    COMPARISON_DATA.categories.forEach(cat => {
+      const option = document.createElement('option');
+      option.value = cat;
+      option.textContent = cat;
+      categorySelect.appendChild(option);
+    });
+  } catch (error) {
+    console.error('Error initializing comparison tab:', error);
+  }
+}
+
+function filterComparisonScenarios() {
+  const category = document.getElementById('comparison-category').value;
+  const scenarioSelect = document.getElementById('comparison-scenario');
+  const sessionSelect = document.getElementById('comparison-session');
+
+  // Reset downstream selections
+  scenarioSelect.innerHTML = '<option value="">Select a scenario...</option>';
+  scenarioSelect.disabled = !category;
+  sessionSelect.innerHTML = '<option value="">Select a session...</option>';
+  sessionSelect.disabled = true;
+  document.getElementById('comparison-conversation').style.display = 'none';
+  document.getElementById('comparison-legend').style.display = 'none';
+
+  if (!category) return;
+
+  // Filter scenarios by category
+  const filtered = COMPARISON_DATA.scenarios.filter(p => p.category === category);
+  filtered.forEach(scenario => {
+    const option = document.createElement('option');
+    option.value = scenario.prompt_id;
+    option.textContent = scenario.prompt_id;
+    scenarioSelect.appendChild(option);
+  });
+}
+
+async function filterComparisonSessions() {
+  const scenarioId = document.getElementById('comparison-scenario').value;
+  const sessionSelect = document.getElementById('comparison-session');
+
+  sessionSelect.innerHTML = '<option value="">Select a session...</option>';
+  sessionSelect.disabled = true;
+  document.getElementById('comparison-conversation').style.display = 'none';
+  document.getElementById('comparison-legend').style.display = 'none';
+
+  if (!scenarioId) return;
+
+  try {
+    // Fetch sessions for this scenario
+    const response = await fetch(`${BASE}/api/sessions?scenario=${encodeURIComponent(scenarioId)}`);
+    if (!response.ok) {
+      console.error('Failed to fetch sessions');
+      return;
+    }
+
+    const data = await response.json();
+    const sessions = data.sessions || [];
+
+    if (sessions.length === 0) {
+      sessionSelect.innerHTML = '<option value="">No sessions found</option>';
+      return;
+    }
+
+    sessionSelect.disabled = false;
+    sessions.forEach(session => {
+      const option = document.createElement('option');
+      option.value = session.session_id;
+      option.textContent = `${session.session_id.substring(0, 8)}... - ${session.ra_pseudonym || 'N/A'}`;
+      sessionSelect.appendChild(option);
+    });
+  } catch (error) {
+    console.error('Error loading sessions:', error);
+  }
+}
+
+async function loadComparisonData() {
+  const sessionId = document.getElementById('comparison-session').value;
+  if (!sessionId) {
+    document.getElementById('comparison-conversation').style.display = 'none';
+    document.getElementById('comparison-legend').style.display = 'none';
+    return;
+  }
+
+  try {
+    // Fetch transcript
+    const transcriptResponse = await fetch(`${BASE}/api/session/${encodeURIComponent(sessionId)}/transcript`);
+    if (!transcriptResponse.ok) {
+      alert('Failed to load transcript');
+      return;
+    }
+    const transcriptData = await transcriptResponse.json();
+    const transcript = transcriptData.transcript || [];
+
+    // Fetch human scores (incidents)
+    const humanResponse = await fetch(`${BASE}/api/incidents?session_id=${encodeURIComponent(sessionId)}`);
+    if (!humanResponse.ok) {
+      alert('Failed to load human scores');
+      return;
+    }
+    const humanData = await humanResponse.json();
+    const humanScores = humanData.incidents || [];
+
+    // Fetch LLM scores
+    const llmResponse = await fetch(`${BASE}/api/scores?session_id=${encodeURIComponent(sessionId)}`);
+    if (!llmResponse.ok) {
+      alert('Failed to load LLM scores');
+      return;
+    }
+    const llmData = await llmResponse.json();
+    const llmScores = llmData.scores || [];
+
+    // Display the comparison
+    displayComparison(transcript, humanScores, llmScores);
+    document.getElementById('comparison-legend').style.display = 'block';
+    document.getElementById('comparison-conversation').style.display = 'block';
+
+  } catch (error) {
+    console.error('Error loading comparison data:', error);
+    alert('Error loading comparison data: ' + error.message);
+  }
+}
+
+function displayComparison(transcript, humanScores, llmScores) {
+  const container = document.getElementById('comparison-conversation');
+  container.innerHTML = '';
+
+  // Group scores by turn
+  const humanByTurn = {};
+  humanScores.forEach(score => {
+    if (!humanByTurn[score.turn_index]) humanByTurn[score.turn_index] = [];
+    humanByTurn[score.turn_index].push(score);
+  });
+
+  const llmByTurn = {};
+  llmScores.forEach(score => {
+    if (!llmByTurn[score.turn_index]) llmByTurn[score.turn_index] = [];
+    llmByTurn[score.turn_index].push(score);
+  });
+
+  // Build pairs of user + assistant turns
+  const pairs = [];
+  for (let i = 0; i < transcript.length; i++) {
+    const turn = transcript[i];
+    if (turn.role === 'assistant') {
+      const userTurn = transcript.slice(0, i).reverse().find(t => t.role === 'user');
+      if (userTurn) {
+        pairs.push({
+          userTurn: userTurn,
+          assistantTurn: turn,
+          humanScores: humanByTurn[turn.turn_index] || [],
+          llmScores: llmByTurn[turn.turn_index] || []
+        });
+      }
+    }
+  }
+
+  // Display each pair
+  pairs.forEach((pair, idx) => {
+    const turnDiv = document.createElement('div');
+    turnDiv.style.marginBottom = '30px';
+    turnDiv.style.padding = '20px';
+    turnDiv.style.border = '1px solid #ddd';
+    turnDiv.style.borderRadius = '10px';
+    turnDiv.style.background = '#fff';
+
+    // User message
+    const userHeader = document.createElement('h4');
+    userHeader.textContent = `User Message (Turn ${pair.userTurn.turn_index})`;
+    userHeader.style.marginBottom = '8px';
+    turnDiv.appendChild(userHeader);
+
+    const userContent = document.createElement('div');
+    userContent.className = 'transcript';
+    userContent.style.background = '#e3f2fd';
+    userContent.style.borderColor = '#2196f3';
+    userContent.style.marginBottom = '20px';
+    userContent.textContent = pair.userTurn.content;
+    turnDiv.appendChild(userContent);
+
+    // Assistant message with highlights
+    const assistantHeader = document.createElement('h4');
+    assistantHeader.textContent = `Assistant Response (Turn ${pair.assistantTurn.turn_index})`;
+    assistantHeader.style.marginBottom = '8px';
+    turnDiv.appendChild(assistantHeader);
+
+    const assistantContent = document.createElement('div');
+    assistantContent.className = 'transcript';
+    assistantContent.style.background = '#fff';
+    assistantContent.style.minHeight = '100px';
+    assistantContent.style.whiteSpace = 'pre-wrap';
+    assistantContent.innerHTML = applyComparisonHighlights(
+      pair.assistantTurn.content,
+      pair.humanScores,
+      pair.llmScores
+    );
+    turnDiv.appendChild(assistantContent);
+
+    // Grades summary
+    const gradesDiv = document.createElement('div');
+    gradesDiv.style.marginTop = '15px';
+    gradesDiv.style.display = 'grid';
+    gradesDiv.style.gridTemplateColumns = '1fr 1fr';
+    gradesDiv.style.gap = '15px';
+
+    // Human grades
+    const humanGradesDiv = document.createElement('div');
+    humanGradesDiv.innerHTML = `<strong style="color: #6495ed;">Human Grades (${pair.humanScores.length}):</strong>`;
+    if (pair.humanScores.length > 0) {
+      const humanList = document.createElement('ul');
+      humanList.style.marginTop = '8px';
+      humanList.style.fontSize = '13px';
+      pair.humanScores.forEach(score => {
+        const li = document.createElement('li');
+        li.innerHTML = `<strong>${score.label}</strong> (strength: ${score.strength})<br><span style="color: #666; font-size: 12px;">"${score.snippet}"</span>`;
+        humanList.appendChild(li);
+      });
+      humanGradesDiv.appendChild(humanList);
+    } else {
+      humanGradesDiv.innerHTML += '<p class="small" style="color: #999; margin-top: 5px;">No annotations</p>';
+    }
+    gradesDiv.appendChild(humanGradesDiv);
+
+    // LLM grades
+    const llmGradesDiv = document.createElement('div');
+    llmGradesDiv.innerHTML = `<strong style="color: #ff8c00;">LLM Grades (${pair.llmScores.length}):</strong>`;
+    if (pair.llmScores.length > 0) {
+      const llmList = document.createElement('ul');
+      llmList.style.marginTop = '8px';
+      llmList.style.fontSize = '13px';
+      pair.llmScores.forEach(score => {
+        const li = document.createElement('li');
+        li.innerHTML = `<strong>${score.label}</strong> (strength: ${score.strength})<br><span style="color: #666; font-size: 12px;">"${score.snippet}"</span>`;
+        llmList.appendChild(li);
+      });
+      llmGradesDiv.appendChild(llmList);
+    } else {
+      llmGradesDiv.innerHTML += '<p class="small" style="color: #999; margin-top: 5px;">No annotations</p>';
+    }
+    gradesDiv.appendChild(llmGradesDiv);
+
+    turnDiv.appendChild(gradesDiv);
+    container.appendChild(turnDiv);
+  });
+}
+
+function applyComparisonHighlights(text, humanScores, llmScores) {
+  // Create a map of character positions to highlight types
+  const highlightMap = new Array(text.length).fill(null);
+
+  // Mark human scores
+  humanScores.forEach(score => {
+    for (let i = score.start_char; i < score.end_char && i < text.length; i++) {
+      if (highlightMap[i] === null) {
+        highlightMap[i] = 'human';
+      } else if (highlightMap[i] === 'llm') {
+        highlightMap[i] = 'both';
+      }
+    }
+  });
+
+  // Mark LLM scores
+  llmScores.forEach(score => {
+    for (let i = score.start_char; i < score.end_char && i < text.length; i++) {
+      if (highlightMap[i] === null) {
+        highlightMap[i] = 'llm';
+      } else if (highlightMap[i] === 'human') {
+        highlightMap[i] = 'both';
+      }
+    }
+  });
+
+  // Build highlighted HTML
+  let result = '';
+  let currentType = null;
+  let currentText = '';
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const type = highlightMap[i];
+
+    if (type !== currentType) {
+      // Flush current segment
+      if (currentText) {
+        if (currentType) {
+          result += `<mark class="${currentType}-grade">${escapeHtml(currentText)}</mark>`;
+        } else {
+          result += escapeHtml(currentText);
+        }
+      }
+      currentText = char;
+      currentType = type;
+    } else {
+      currentText += char;
+    }
+  }
+
+  // Flush final segment
+  if (currentText) {
+    if (currentType) {
+      result += `<mark class="${currentType}-grade">${escapeHtml(currentText)}</mark>`;
+    } else {
+      result += escapeHtml(currentText);
+    }
+  }
+
+  return result;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 </script>
 </body>

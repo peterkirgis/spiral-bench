@@ -504,16 +504,9 @@
   </div>
 
   <div id="intercoder-content" style="display: none;">
-    <!-- Turn Navigation -->
-    <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 10px; background: #f9f9f9;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-        <h4 style="margin: 0;">Turn Navigation</h4>
-        <div style="display: flex; gap: 8px; align-items: center;">
-          <button onclick="previousTurn()" id="intercoder-prev-btn">← Previous</button>
-          <span id="intercoder-turn-info" style="font-weight: 600; padding: 0 15px;"></span>
-          <button onclick="nextTurn()" id="intercoder-next-btn">Next →</button>
-        </div>
-      </div>
+    <!-- Turn Progress -->
+    <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 10px; background: #f9f9f9; text-align: center;">
+      <span id="intercoder-turn-info" style="font-weight: 600; font-size: 16px;"></span>
     </div>
 
     <!-- User Message Display -->
@@ -573,7 +566,7 @@
 
       <!-- Complete Grading Button -->
       <div style="margin-top: 16px; display: flex; gap: 8px; align-items: center;">
-        <button onclick="completeIntercoderTurn()" id="intercoder-complete-btn" style="background: #28a745; color: white; border-color: #28a745; font-weight: 600;">✓ Complete Grading for This Turn</button>
+        <button onclick="completeIntercoderTurn()" id="intercoder-complete-btn" style="background: #28a745; color: white; border-color: #28a745; font-weight: 600; padding: 10px 20px;">Complete Grading & Continue →</button>
         <span id="intercoder-turn-status" class="small" style="font-weight: 600;"></span>
       </div>
     </div>
@@ -1939,29 +1932,12 @@ function displayIntercoderTurn() {
   viewer.addEventListener('mouseup', handleIntercoderSelectionChange);
   viewer.addEventListener('keyup', handleIntercoderSelectionChange);
 
-  // Update navigation buttons
-  document.getElementById('intercoder-prev-btn').disabled = INTERCODER_STATE.currentIndex === 0;
-  document.getElementById('intercoder-next-btn').disabled = INTERCODER_STATE.currentIndex === INTERCODER_STATE.assistantTurns.length - 1;
-
-  // Clear completion status
+  // Clear completion status and re-enable button
   document.getElementById('intercoder-turn-status').textContent = '';
+  document.getElementById('intercoder-complete-btn').disabled = false;
 
   // Reset selection
   resetIntercoderSelection();
-}
-
-function previousTurn() {
-  if (INTERCODER_STATE.currentIndex > 0) {
-    INTERCODER_STATE.currentIndex--;
-    displayIntercoderTurn();
-  }
-}
-
-function nextTurn() {
-  if (INTERCODER_STATE.currentIndex < INTERCODER_STATE.assistantTurns.length - 1) {
-    INTERCODER_STATE.currentIndex++;
-    displayIntercoderTurn();
-  }
 }
 
 async function completeIntercoderTurn() {
@@ -1969,42 +1945,48 @@ async function completeIntercoderTurn() {
   if (!pair) return;
 
   const statusSpan = document.getElementById('intercoder-turn-status');
+  const button = document.getElementById('intercoder-complete-btn');
+  button.disabled = true;
 
   try {
-    // Check if there are any annotations for this turn
+    // Check if there are any annotations for this turn (optional - just for feedback)
     const response = await fetch(`${BASE}/api/second_human_scores?session_id=${encodeURIComponent(INTERCODER_STATE.sessionId)}&turn_index=${pair.assistantTurn}`);
     if (!response.ok) {
       statusSpan.textContent = '✗ Error checking annotations';
       statusSpan.style.color = '#dc3545';
+      button.disabled = false;
       return;
     }
 
     const data = await response.json();
     const scores = data.scores || [];
 
+    // Mark as complete (with or without annotations)
     if (scores.length === 0) {
-      statusSpan.textContent = '⚠ No annotations yet - add at least one highlight';
-      statusSpan.style.color = '#ff9800';
-      return;
+      statusSpan.textContent = `✓ Turn ${INTERCODER_STATE.currentIndex + 1} completed (no annotations)`;
+      statusSpan.style.color = '#6c757d';
+    } else {
+      statusSpan.textContent = `✓ Turn ${INTERCODER_STATE.currentIndex + 1} completed (${scores.length} highlight${scores.length > 1 ? 's' : ''})`;
+      statusSpan.style.color = '#28a745';
     }
 
-    // Mark as complete
-    statusSpan.textContent = `✓ Turn ${INTERCODER_STATE.currentIndex + 1} graded (${scores.length} highlight${scores.length > 1 ? 's' : ''})`;
-    statusSpan.style.color = '#28a745';
-
-    // Auto-advance to next turn after a brief delay
+    // Auto-advance to next turn immediately
     setTimeout(() => {
       if (INTERCODER_STATE.currentIndex < INTERCODER_STATE.assistantTurns.length - 1) {
-        nextTurn();
+        INTERCODER_STATE.currentIndex++;
+        displayIntercoderTurn();
       } else {
         statusSpan.textContent = '✓ All turns completed!';
+        statusSpan.style.color = '#28a745';
       }
-    }, 1000);
+      button.disabled = false;
+    }, 500);
 
   } catch (error) {
     console.error('Error completing turn:', error);
     statusSpan.textContent = '✗ Error completing turn';
     statusSpan.style.color = '#dc3545';
+    button.disabled = false;
   }
 }
 

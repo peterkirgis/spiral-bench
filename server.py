@@ -114,10 +114,33 @@ def init_db():
             """)
             cur.execute("""CREATE INDEX IF NOT EXISTS second_human_scores_idx ON second_human_scores(session_id, turn_index)""")
 
+            # API human scores for regrading API conversations
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS api_human_scores(
+                    id SERIAL PRIMARY KEY,
+                    model TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    prompt_id TEXT NOT NULL,
+                    run_index INTEGER NOT NULL,
+                    convo_index INTEGER NOT NULL,
+                    turn_index INTEGER NOT NULL,
+                    ra_pseudonym TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    strength INTEGER NOT NULL CHECK (strength BETWEEN 1 AND 3),
+                    start_char INTEGER NOT NULL,
+                    end_char INTEGER NOT NULL,
+                    snippet TEXT NOT NULL,
+                    content_sha256 TEXT NOT NULL,
+                    created_at DOUBLE PRECISION
+                )
+            """)
+            cur.execute("""CREATE INDEX IF NOT EXISTS api_human_scores_idx ON api_human_scores(model, category, prompt_id, run_index, convo_index, turn_index)""")
+
             # Task assignments for RAs
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS task_assignments(
                     id SERIAL PRIMARY KEY,
+                    task_type TEXT CHECK (task_type IN ('conversation', 'intercoder_regrading', 'api_regrading')) DEFAULT 'conversation',
                     ra_pseudonym TEXT NOT NULL,
                     seed_prompt_id TEXT,
                     seed_prompt_text TEXT,
@@ -128,11 +151,49 @@ def init_db():
                     notes TEXT,
                     session_id TEXT,
                     actual_turns INTEGER DEFAULT 0,
+                    api_model TEXT,
+                    api_category TEXT,
+                    api_prompt_id TEXT,
+                    api_run_index INTEGER,
+                    api_convo_index INTEGER,
                     assigned_at DOUBLE PRECISION DEFAULT EXTRACT(EPOCH FROM NOW()),
                     updated_at DOUBLE PRECISION DEFAULT EXTRACT(EPOCH FROM NOW())
                 )
             """)
-            cur.execute("""CREATE INDEX IF NOT EXISTS task_assignments_idx ON task_assignments(ra_pseudonym, status)""")
+
+            # Add new columns if they don't exist (for existing databases)
+            cur.execute("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                 WHERE table_name='task_assignments' AND column_name='task_type') THEN
+                        ALTER TABLE task_assignments ADD COLUMN task_type TEXT CHECK (task_type IN ('conversation', 'intercoder_regrading', 'api_regrading')) DEFAULT 'conversation';
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                 WHERE table_name='task_assignments' AND column_name='api_model') THEN
+                        ALTER TABLE task_assignments ADD COLUMN api_model TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                 WHERE table_name='task_assignments' AND column_name='api_category') THEN
+                        ALTER TABLE task_assignments ADD COLUMN api_category TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                 WHERE table_name='task_assignments' AND column_name='api_prompt_id') THEN
+                        ALTER TABLE task_assignments ADD COLUMN api_prompt_id TEXT;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                 WHERE table_name='task_assignments' AND column_name='api_run_index') THEN
+                        ALTER TABLE task_assignments ADD COLUMN api_run_index INTEGER;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                                 WHERE table_name='task_assignments' AND column_name='api_convo_index') THEN
+                        ALTER TABLE task_assignments ADD COLUMN api_convo_index INTEGER;
+                    END IF;
+                END $$;
+            """)
+
+            # Create index after columns are guaranteed to exist
+            cur.execute("""CREATE INDEX IF NOT EXISTS task_assignments_idx ON task_assignments(ra_pseudonym, status, task_type)""")
 
         con.commit()
 
@@ -443,6 +504,145 @@ def create_second_human_score(score: SecondHumanScore):
 @app.delete("/api/second_human_scores/{score_id}")
 def delete_second_human_score(score_id: int):
     query("DELETE FROM second_human_scores WHERE id=%s", (score_id,))
+    return {"ok": True}
+
+# ────────────────────────────── API Human Scores (API Transcript Regrading) ───────────────────────────
+
+class APIHumanScore(BaseModel):
+    model: str
+    category: str
+    prompt_id: str
+    run_index: int
+    convo_index: int
+    turn_index: int
+    ra_pseudonym: str
+    label: str
+    strength: int
+    start_char: int
+    end_char: int
+    content_sha256: str
+
+@app.get("/api/api_transcripts")
+def get_api_transcripts():
+    """Load all transcripts from res_v0.2 folder and return metadata for filtering"""
+    transcripts_dir = Path("res_v0.2")
+    if not transcripts_dir.exists():
+        raise HTTPException(404, "res_v0.2 directory not found")
+
+    metadata = []
+    for json_file in transcripts_dir.glob("*.json"):
+        try:
+            with open(json_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            model_name = json_file.stem
+            for run_idx, run_data in data.items():
+                for prompt_file, prompt_data in run_data.items():
+                    for prompt_id, convos in prompt_data.items():
+                        for convo_idx, convo in enumerate(convos):
+                            metadata.append({
+                                "model": model_name,
+                                "category": convo.get("category", ""),
+                                "prompt_id": prompt_id,
+                                "run_index": int(run_idx),
+                                "convo_index": convo_idx,
+                                "turn_count": len([t for t in convo.get("transcript", []) if t.get("role") == "assistant"])
+                            })
+        except Exception as e:
+            continue
+
+    return {"transcripts": metadata}
+
+@app.get("/api/api_transcript")
+def get_api_transcript(model: str, category: str, prompt_id: str, run_index: int, convo_index: int):
+    """Load a specific transcript from res_v0.2 folder"""
+    transcripts_dir = Path("res_v0.2")
+    json_file = transcripts_dir / f"{model}.json"
+
+    if not json_file.exists():
+        raise HTTPException(404, f"Transcript file not found: {model}.json")
+
+    try:
+        with open(json_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Navigate through the nested structure
+        run_data = data.get(str(run_index))
+        if not run_data:
+            raise HTTPException(404, f"Run index {run_index} not found")
+
+        prompt_data = run_data.get("eval_prompts_v0.2.json")
+        if not prompt_data:
+            raise HTTPException(404, "Prompt data not found")
+
+        convos = prompt_data.get(prompt_id)
+        if not convos or convo_index >= len(convos):
+            raise HTTPException(404, f"Conversation not found for prompt_id {prompt_id}, convo_index {convo_index}")
+
+        convo = convos[convo_index]
+        return {
+            "transcript": convo.get("transcript", []),
+            "metadata": {
+                "model": model,
+                "category": category,
+                "prompt_id": prompt_id,
+                "run_index": run_index,
+                "convo_index": convo_index,
+                "user_model": convo.get("user_model", ""),
+                "evaluated_model": convo.get("evaluated_model", "")
+            }
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Error loading transcript: {str(e)}")
+
+@app.get("/api/api_human_scores")
+def list_api_human_scores(model: str, category: str, prompt_id: str, run_index: int, convo_index: int, turn_index: int):
+    rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at
+                    FROM api_human_scores
+                    WHERE model=%s AND category=%s AND prompt_id=%s
+                    AND run_index=%s AND convo_index=%s AND turn_index=%s
+                    ORDER BY start_char ASC, end_char ASC""",
+                 (model, category, prompt_id, run_index, convo_index, turn_index), fetch=True)
+    return {"scores": rows}
+
+@app.post("/api/api_human_scores")
+def create_api_human_score(score: APIHumanScore):
+    if score.label not in LABELS:
+        raise HTTPException(400, f"Unknown label '{score.label}'")
+
+    # Load the transcript to validate and extract snippet
+    try:
+        transcript_data = get_api_transcript(score.model, score.category, score.prompt_id, score.run_index, score.convo_index)
+        transcript = transcript_data["transcript"]
+
+        # Find the assistant turn
+        assistant_turns = [t for t in transcript if t.get("role") == "assistant"]
+        if score.turn_index >= len(assistant_turns):
+            raise HTTPException(404, "Turn index out of range")
+
+        assistant_turn = assistant_turns[score.turn_index]
+        text = assistant_turn.get("content", "")
+
+        if not (0 <= score.start_char < score.end_char <= len(text)):
+            raise HTTPException(400, "Invalid span offsets")
+
+        snippet = text[score.start_char:score.end_char]
+        content_hash = sha256_text(text)
+
+        query("""INSERT INTO api_human_scores(model,category,prompt_id,run_index,convo_index,turn_index,ra_pseudonym,label,strength,
+                 start_char,end_char,snippet,content_sha256,created_at)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+              (score.model, score.category, score.prompt_id, score.run_index, score.convo_index, score.turn_index,
+               score.ra_pseudonym, score.label, score.strength, score.start_char, score.end_char, snippet, content_hash, time.time()))
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Error creating score: {str(e)}")
+
+@app.delete("/api/api_human_scores/{score_id}")
+def delete_api_human_score(score_id: int):
+    query("DELETE FROM api_human_scores WHERE id=%s", (score_id,))
     return {"ok": True}
 
 # ────────────────────────────── Judge (LLM grader) ───────────────────────────
@@ -871,34 +1071,52 @@ def get_prompts():
         return {"prompts": []}
 
 @app.get("/api/task_assignments")
-def get_task_assignments():
+def get_task_assignments(task_type: Optional[str] = None):
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT id, ra_pseudonym, seed_prompt_id, seed_prompt_text, scenario_category,
-                       assigned_model, target_turns, status, notes, session_id, actual_turns,
-                       assigned_at, updated_at
-                FROM task_assignments
-                ORDER BY assigned_at DESC
-            """)
+            if task_type:
+                cur.execute("""
+                    SELECT id, task_type, ra_pseudonym, seed_prompt_id, seed_prompt_text, scenario_category,
+                           assigned_model, target_turns, status, notes, session_id, actual_turns,
+                           api_model, api_category, api_prompt_id, api_run_index, api_convo_index,
+                           assigned_at, updated_at
+                    FROM task_assignments
+                    WHERE task_type = %s
+                    ORDER BY assigned_at DESC
+                """, (task_type,))
+            else:
+                cur.execute("""
+                    SELECT id, task_type, ra_pseudonym, seed_prompt_id, seed_prompt_text, scenario_category,
+                           assigned_model, target_turns, status, notes, session_id, actual_turns,
+                           api_model, api_category, api_prompt_id, api_run_index, api_convo_index,
+                           assigned_at, updated_at
+                    FROM task_assignments
+                    ORDER BY assigned_at DESC
+                """)
             assignments = cur.fetchall()
 
             return {
                 "assignments": [
                     {
                         "id": assignment[0],
-                        "ra_pseudonym": assignment[1],
-                        "seed_prompt_id": assignment[2],
-                        "seed_prompt_text": assignment[3],
-                        "scenario_category": assignment[4],
-                        "assigned_model": assignment[5],
-                        "target_turns": assignment[6],
-                        "status": assignment[7],
-                        "notes": assignment[8],
-                        "session_id": assignment[9],
-                        "actual_turns": assignment[10],
-                        "assigned_at": assignment[11],
-                        "updated_at": assignment[12]
+                        "task_type": assignment[1] or 'conversation',
+                        "ra_pseudonym": assignment[2],
+                        "seed_prompt_id": assignment[3],
+                        "seed_prompt_text": assignment[4],
+                        "scenario_category": assignment[5],
+                        "assigned_model": assignment[6],
+                        "target_turns": assignment[7],
+                        "status": assignment[8],
+                        "notes": assignment[9],
+                        "session_id": assignment[10],
+                        "actual_turns": assignment[11],
+                        "api_model": assignment[12],
+                        "api_category": assignment[13],
+                        "api_prompt_id": assignment[14],
+                        "api_run_index": assignment[15],
+                        "api_convo_index": assignment[16],
+                        "assigned_at": assignment[17],
+                        "updated_at": assignment[18]
                     }
                     for assignment in assignments
                 ]
@@ -910,11 +1128,14 @@ def create_task_assignment(assignment: dict):
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO task_assignments
-                (ra_pseudonym, seed_prompt_id, seed_prompt_text, scenario_category,
-                 assigned_model, target_turns, status, notes, assigned_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (task_type, ra_pseudonym, seed_prompt_id, seed_prompt_text, scenario_category,
+                 assigned_model, target_turns, status, notes, session_id,
+                 api_model, api_category, api_prompt_id, api_run_index, api_convo_index,
+                 assigned_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
             """, (
+                assignment.get('task_type', 'conversation'),
                 assignment.get('ra_pseudonym'),
                 assignment.get('seed_prompt_id'),
                 assignment.get('seed_prompt_text'),
@@ -923,6 +1144,12 @@ def create_task_assignment(assignment: dict):
                 assignment.get('target_turns'),
                 assignment.get('status', 'assigned'),
                 assignment.get('notes'),
+                assignment.get('session_id'),
+                assignment.get('api_model'),
+                assignment.get('api_category'),
+                assignment.get('api_prompt_id'),
+                assignment.get('api_run_index'),
+                assignment.get('api_convo_index'),
                 time.time(),
                 time.time()
             ))

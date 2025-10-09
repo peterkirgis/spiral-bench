@@ -1145,10 +1145,27 @@ function normalizeEOL(s){ return (s || '').replace(/\r\n/g, '\n'); }
 
 // Convert a (container, offset) endpoint into a linear index inside `root`
 function linearOffset(root, container, offset) {
-  const r = document.createRange();
-  r.setStart(root, 0);
-  try { r.setEnd(container, offset); } catch { return null; }
-  return r.toString().length; // UTF-16 code units (matches JS string indexing)
+  // Walk through all text nodes and count characters until we reach the target
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+  let charCount = 0;
+  let node;
+
+  while ((node = walker.nextNode())) {
+    if (node === container) {
+      return charCount + offset;
+    }
+    if (node.contains && node.contains(container)) {
+      // Container is within this node, recurse
+      continue;
+    }
+    charCount += node.length;
+    if (container.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) {
+      // We've passed the container, it must be before this node
+      break;
+    }
+  }
+
+  return charCount;
 }
 
 // Map a linear [0..text.length] offset to a DOM Text node + local offset

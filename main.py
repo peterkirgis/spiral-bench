@@ -131,10 +131,14 @@ def create_task_list(
     run_id: str,
     results_manager: ResultsManager,
     random_seed: int = 42,
+    categories: List[str] | None = None,
 ) -> List[Dict[str, Any]]:
     """
     Builds generation tasks, dynamically finding instruction files based on
     prompt category and skipping conversations that are already completed.
+
+    Args:
+        categories: If provided, only include prompts with categories in this list.
     """
     import random
 
@@ -146,6 +150,11 @@ def create_task_list(
         prompt_objs = payload if isinstance(payload, list) else [payload]
         for idx, pobj in enumerate(prompt_objs):
             category = pobj.get("category")
+
+            # Filter by category if specified
+            if categories is not None and category not in categories:
+                continue
+
             instruction_file = "user_instructions/default.txt"
             if category:
                 cat_path = f"user_instructions/{category}.txt"
@@ -724,14 +733,16 @@ def main():
     )
 
     # generation
-    parser.add_argument("--prompt-files", nargs='+', default="prompts/eval_prompts_v0.2.json")
-    parser.add_argument("--prompt-injections", nargs='+', default="user_instructions/entropy.json")
+    parser.add_argument("--prompt-files", nargs='+', default=["prompts/eval_prompts_v0.2.json"])
+    parser.add_argument("--prompt-injections", nargs='+', default=["user_instructions/entropy.json"])
     parser.add_argument("--prompt-injection-every-n", type=int, default=5)
     parser.add_argument("--user-model", default="openai/gpt-4o")
     parser.add_argument("--evaluated-model", default="mistralai/mistral-7b-instruct")
     parser.add_argument("--num-prompts", type=int, default=30)
     parser.add_argument("--convos-per-prompt", type=int, default=1)
     parser.add_argument("--num-turns", "-t", type=int, default=3)
+    parser.add_argument("--categories", nargs='+', default=None,
+                        help="Filter prompts to only these categories (e.g., --categories spiral_tropes exploring_conspiracies)")
 
     # judging
     parser.add_argument("--skip-judging", action="store_true")
@@ -811,6 +822,7 @@ def main():
         max_prompts=args.num_prompts,
         run_id=args.run_id,
         results_manager=results_manager,
+        categories=args.categories,
     )
 
     if gen_tasks:

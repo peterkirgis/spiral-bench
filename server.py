@@ -425,6 +425,8 @@ def create_incident(inc: SpanIncident):
     if not row:
         raise HTTPException(404, "Assistant turn not found")
     text = row["content"] or ""
+    # Normalize line endings to match client-side processing
+    text = text.replace('\r\n', '\n')
     if not (0 <= inc.start_char < inc.end_char <= len(text)):
         raise HTTPException(400, "Invalid span offsets")
     snippet = text[inc.start_char:inc.end_char]
@@ -491,6 +493,8 @@ def create_second_human_score(score: SecondHumanScore):
     if not row:
         raise HTTPException(404, "Assistant turn not found")
     text = row["content"] or ""
+    # Normalize line endings to match client-side processing
+    text = text.replace('\r\n', '\n')
     if not (0 <= score.start_char < score.end_char <= len(text)):
         raise HTTPException(400, "Invalid span offsets")
     snippet = text[score.start_char:score.end_char]
@@ -524,10 +528,10 @@ class APIHumanScore(BaseModel):
 
 @app.get("/api/api_transcripts")
 def get_api_transcripts():
-    """Load all transcripts from res_v0.2 folder and return metadata for filtering"""
-    transcripts_dir = Path("res_v0.2")
+    """Load all transcripts from results folder and return metadata for filtering"""
+    transcripts_dir = Path("results")
     if not transcripts_dir.exists():
-        raise HTTPException(404, "res_v0.2 directory not found")
+        raise HTTPException(404, "results directory not found")
 
     metadata = []
     for json_file in transcripts_dir.glob("*.json"):
@@ -555,8 +559,8 @@ def get_api_transcripts():
 
 @app.get("/api/api_transcript")
 def get_api_transcript(model: str, category: str, prompt_id: str, run_index: int, convo_index: int):
-    """Load a specific transcript from res_v0.2 folder"""
-    transcripts_dir = Path("res_v0.2")
+    """Load a specific transcript from results folder"""
+    transcripts_dir = Path("results")
     json_file = transcripts_dir / f"{model}.json"
 
     if not json_file.exists():
@@ -622,18 +626,24 @@ def create_api_human_score(score: APIHumanScore):
 
         assistant_turn = assistant_turns[score.turn_index]
         text = assistant_turn.get("content", "")
+        # Normalize line endings to match client-side processing
+        text = text.replace('\r\n', '\n')
 
-        if not (0 <= score.start_char < score.end_char <= len(text)):
-            raise HTTPException(400, "Invalid span offsets")
+        # Clamp offsets to valid range (allows for minor discrepancies in length calculation)
+        start_char = max(0, min(score.start_char, len(text)))
+        end_char = max(start_char, min(score.end_char, len(text)))
 
-        snippet = text[score.start_char:score.end_char]
+        if start_char >= end_char:
+            raise HTTPException(400, f"Invalid span offsets after clamping: start={score.start_char}, end={score.end_char}, text_length={len(text)}, clamped to: start={start_char}, end={end_char}")
+
+        snippet = text[start_char:end_char]
         content_hash = sha256_text(text)
 
         query("""INSERT INTO api_human_scores(model,category,prompt_id,run_index,convo_index,turn_index,ra_pseudonym,label,strength,
                  start_char,end_char,snippet,content_sha256,created_at)
                  VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
               (score.model, score.category, score.prompt_id, score.run_index, score.convo_index, score.turn_index,
-               score.ra_pseudonym, score.label, score.strength, score.start_char, score.end_char, snippet, content_hash, time.time()))
+               score.ra_pseudonym, score.label, score.strength, start_char, end_char, snippet, content_hash, time.time()))
         return {"ok": True}
     except HTTPException:
         raise

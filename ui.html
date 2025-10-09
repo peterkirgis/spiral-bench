@@ -31,7 +31,7 @@
     tr:hover { background: #fafafa; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .pill { display:inline-block; padding:2px 6px; border:1px solid #ccc; border-radius:999px; font-size:12px; color:#444; }
-    .transcript { background:#fafafa; border:1px solid #eee; border-radius:10px; padding:10px; max-height: 380px; overflow:auto; }
+    .transcript { background:#fafafa; border:1px solid #eee; border-radius:10px; padding:10px; max-height: 380px; overflow:auto; white-space: pre-wrap; }
     .line { margin: 0 0 8px; white-space: pre-wrap; }
     .roleU { color:#265; font-weight:600; }
     .roleA { color:#623; font-weight:600; }
@@ -1141,7 +1141,10 @@ function getAssistantTextForTurn(/*turnIndex*/) {
 function escapeHtmlLite(s){return s.replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
 
 // --- Highlighting helpers (DOM-range based, no per-character spans) ---
-function normalizeEOL(s){ return (s || '').replace(/\r\n/g, '\n'); }
+function normalizeEOL(s) {
+  // Normalize line endings - the JSON already has real newlines and Unicode chars
+  return (s || '').replace(/\r\n/g, '\n');
+}
 
 // Convert a (container, offset) endpoint into a linear index inside `root`
 function linearOffset(root, container, offset) {
@@ -1255,14 +1258,50 @@ function getSelectionOffsetsWithin(el) {
   const range = sel.getRangeAt(0);
   if (!el.contains(range.commonAncestorContainer)) return null;
 
+  console.log('Raw range info:', {
+    startContainer: range.startContainer,
+    startOffset: range.startOffset,
+    endContainer: range.endContainer,
+    endOffset: range.endOffset,
+    isCollapsed: range.collapsed,
+    selectedText: range.toString()
+  });
+
   const start = linearOffset(el, range.startContainer, range.startOffset);
   const end   = linearOffset(el, range.endContainer, range.endOffset);
+
+  console.log('Linear offsets:', { start, end });
+
   if (start == null || end == null) return null;
 
   const a = Math.min(start, end);
   const b = Math.max(start, end);
   const originalText = getOriginalTextFromViewer(el);
-  return { start: a, end: b, selectedText: originalText.slice(a, b) };
+
+  console.log('Selection debug:', {
+    rawOffsets: { start: a, end: b },
+    textLength: originalText.length,
+    domTextLength: el.textContent.length,
+    hasOriginalText: !!el._originalText,
+    startContainer: range.startContainer.nodeType === Node.TEXT_NODE ? 'TEXT' : range.startContainer.nodeName,
+    endContainer: range.endContainer.nodeType === Node.TEXT_NODE ? 'TEXT' : range.endContainer.nodeName
+  });
+
+  // Clamp offsets to valid range
+  const clampedStart = Math.max(0, Math.min(a, originalText.length));
+  const clampedEnd = Math.max(clampedStart, Math.min(b, originalText.length));
+
+  // Validate offsets are within bounds
+  if (clampedStart < 0 || clampedEnd > originalText.length || clampedStart >= clampedEnd) {
+    console.error('Invalid selection offsets after clamping:', {
+      original: { start: a, end: b },
+      clamped: { start: clampedStart, end: clampedEnd },
+      textLength: originalText.length
+    });
+    return null;
+  }
+
+  return { start: clampedStart, end: clampedEnd, selectedText: originalText.slice(clampedStart, clampedEnd) };
 }
 
 function getCharacterPositionFromNode(node, offset) {

@@ -5,4 +5,3 @@ experiments
 *.db*
 *.sh
 .vscode
-*.ipynb

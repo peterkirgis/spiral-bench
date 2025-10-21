@@ -13,6 +13,9 @@ from fastapi.staticfiles import StaticFiles
 import psycopg2
 import psycopg2.extras
 
+from dotenv import load_dotenv
+load_dotenv()
+
 OPENROUTER_API_KEY  = os.getenv("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_SITE_URL = os.getenv("OPENROUTER_SITE_URL", "https://example.org")
@@ -349,6 +352,101 @@ def get_transcript(session_id: str):
     } for r in turns]
     last_idx = max([t["turn_index"] for t in transcript], default=-1)
     return {"transcript": transcript, "turn_count": len(transcript), "last_turn_index": last_idx, "next_index": last_idx + 1}
+
+@app.get("/api/unified_transcripts")
+def get_unified_transcripts(model: Optional[str] = None, category: Optional[str] = None, prompt_id: Optional[str] = None, interface: Optional[str] = None):
+    """Get unified list of transcripts from both chat UI sessions and API transcripts with filtering"""
+    import json
+    from pathlib import Path
+
+    # Load prompts to get category information
+    prompts_file = Path("prompts/eval_prompts_v0.2.json")
+    prompt_lookup = {}
+    if prompts_file.exists():
+        with open(prompts_file, "r", encoding="utf-8") as f:
+            prompts_data = json.load(f)
+            for p in prompts_data:
+                prompt_lookup[p["prompt_id"]] = p["category"]
+
+    results = []
+
+    # Get Chat UI sessions if interface is not specified or is "chat_ui"
+    if not interface or interface == "chat_ui":
+        sql = """
+        SELECT s.session_id, s.ra_pseudonym, s.user_model, s.evaluated_model, s.scenario_id, s.created_at,
+               COALESCE((SELECT MAX(turn_index) FROM turns t WHERE t.session_id = s.session_id), -1) AS last_turn_index,
+               COALESCE((SELECT MAX(created_at) FROM turns t2 WHERE t2.session_id = s.session_id), s.created_at) AS updated_at,
+               COALESCE((SELECT COUNT(*) FROM turns t3 WHERE t3.session_id = s.session_id AND t3.role = 'assistant'), 0) AS turn_count
+        FROM sessions s
+        """
+        where, args = [], []
+        if model:
+            where.append("s.evaluated_model = %s"); args.append(model)
+        if prompt_id:
+            where.append("s.scenario_id = %s"); args.append(prompt_id)
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY updated_at DESC"
+
+        sessions = query(sql, tuple(args), fetch=True)
+        for s in sessions:
+            session_category = prompt_lookup.get(s["scenario_id"], "")
+            # Filter by category if specified
+            if category and session_category != category:
+                continue
+            results.append({
+                "interface": "chat_ui",
+                "id": s["session_id"],
+                "session_id": s["session_id"],
+                "ra_pseudonym": s["ra_pseudonym"],
+                "model": s["evaluated_model"],
+                "category": session_category,
+                "prompt_id": s["scenario_id"],
+                "turn_count": s["turn_count"],
+                "created_at": ts_iso(s["created_at"]),
+                "updated_at": ts_iso(s["updated_at"])
+            })
+
+    # Get API transcripts if interface is not specified or is "api"
+    if not interface or interface == "api":
+        transcripts_dir = Path("results")
+        if transcripts_dir.exists():
+            for json_file in transcripts_dir.glob("*.json"):
+                try:
+                    with open(json_file, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+
+                    model_name = json_file.stem
+                    # Filter by model if specified
+                    if model and model_name != model:
+                        continue
+
+                    for run_idx, run_data in data.items():
+                        for prompt_file, prompt_data in run_data.items():
+                            for pid, convos in prompt_data.items():
+                                convo_category = prompt_lookup.get(pid, "")
+                                # Filter by category and prompt_id if specified
+                                if category and convo_category != category:
+                                    continue
+                                if prompt_id and pid != prompt_id:
+                                    continue
+
+                                for convo_idx, convo in enumerate(convos):
+                                    assistant_turns = len([t for t in convo.get("transcript", []) if t.get("role") == "assistant"])
+                                    results.append({
+                                        "interface": "api",
+                                        "id": f"api_{model_name}_{convo_category}_{pid}_{run_idx}_{convo_idx}",
+                                        "model": model_name,
+                                        "category": convo_category,
+                                        "prompt_id": pid,
+                                        "run_index": int(run_idx),
+                                        "convo_index": convo_idx,
+                                        "turn_count": assistant_turns
+                                    })
+                except Exception as e:
+                    continue
+
+    return {"transcripts": results}
 
 # ────────────────────────────── Logging & Codes ──────────────────────────────
 
@@ -1134,6 +1232,27 @@ def get_task_assignments(task_type: Optional[str] = None):
 
 @app.post("/api/task_assignments")
 def create_task_assignment(assignment: dict):
+    import json
+    from pathlib import Path
+
+    # If this is an intercoder assignment with session_id, look up session details
+    if assignment.get('task_type') == 'intercoder_regrading' and assignment.get('session_id'):
+        session_id = assignment['session_id']
+        session = query("SELECT evaluated_model, scenario_id FROM sessions WHERE session_id=%s", (session_id,), fetch=True, one=True)
+        if session:
+            assignment['assigned_model'] = session['evaluated_model']
+            assignment['seed_prompt_id'] = session['scenario_id']
+
+            # Look up category from prompts file
+            prompts_file = Path("prompts/eval_prompts_v0.2.json")
+            if prompts_file.exists():
+                with open(prompts_file, "r", encoding="utf-8") as f:
+                    prompts_data = json.load(f)
+                    for p in prompts_data:
+                        if p["prompt_id"] == session['scenario_id']:
+                            assignment['scenario_category'] = p["category"]
+                            break
+
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""

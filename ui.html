@@ -199,9 +199,9 @@
       </span>
     </button>
     <button class="nav-tab" onclick="switchTab('intercoder', this)">
-      Chat UI Regrading
+      Regrading
       <span class="tab-info">i
-        <span class="tooltip-text">Second grader interface for calculating intercoder reliability. Grade conversations independently to compare with the first grader's annotations.</span>
+        <span class="tooltip-text">Grade both Chat UI and API transcripts. Filter by RA pseudonym, evaluated model, category, seed prompt, and interface to review and annotate conversations for intercoder reliability analysis.</span>
       </span>
     </button>
     <button class="nav-tab" onclick="switchTab('api-regrading', this)">
@@ -407,7 +407,7 @@
     <!-- Navigation buttons to jump to each section -->
     <div style="margin-bottom: 20px; padding: 10px; background: #f0f0f0; border-radius: 8px; display: flex; gap: 10px;">
       <button onclick="scrollToTaskType('conversation')" style="background: #007bff; color: white; border-color: #007bff;">→ Conversation Tasks</button>
-      <button onclick="scrollToTaskType('intercoder')" style="background: #6f42c1; color: white; border-color: #6f42c1;">→ Chat UI Regrading</button>
+      <button onclick="scrollToTaskType('intercoder')" style="background: #6f42c1; color: white; border-color: #6f42c1;">→ Regrading</button>
       <button onclick="scrollToTaskType('api')" style="background: #fd7e14; color: white; border-color: #fd7e14;">→ API Grading</button>
     </div>
 
@@ -492,35 +492,60 @@
 
     <!-- INTERCODER REGRADING SECTION -->
     <div id="intercoder-tasks-section" style="margin-bottom: 40px; padding: 20px; border: 2px solid #6f42c1; border-radius: 10px; background: #f8f9fa;">
-      <h4 style="color: #6f42c1; margin-top: 0;">Chat UI Regrading Tasks</h4>
+      <h4 style="color: #6f42c1; margin-top: 0;">Regrading Tasks</h4>
       <div style="margin-bottom: 15px;">
-        <button onclick="showAssignmentForm('intercoder')" style="background: #28a745; color: white; border-color: #28a745;">+ Create Chat UI Regrading Assignment</button>
+        <button onclick="showAssignmentForm('intercoder')" style="background: #28a745; color: white; border-color: #28a745;">+ Create Regrading Assignment</button>
         <button onclick="refreshAssignments('intercoder')" style="margin-left: 10px;">Refresh</button>
       </div>
 
       <div id="intercoder-form" style="display: none; margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #fff;">
-        <h5 style="margin-top: 0;">New Chat UI Regrading Task</h5>
-        <div class="grid2">
+        <h5 style="margin-top: 0;">New Unified Regrading Task</h5>
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 12px;">
           <div>
             <label>RA Pseudonym <span style="color: red;">*</span></label>
             <input type="text" id="inter-ra" placeholder="eg. RA07" required />
           </div>
           <div>
-            <label>Completed Session ID <span style="color: red;">*</span></label>
-            <select id="inter-session" required>
-              <option value="">Select completed session...</option>
+            <label>Interface <span style="color: red;">*</span></label>
+            <select id="inter-interface" onchange="filterIntercoderAssignmentTranscripts()" required>
+              <option value="">Select interface...</option>
+              <option value="chat_ui">Chat UI</option>
+              <option value="api">API</option>
             </select>
           </div>
           <div>
-            <label>Target Turns <span style="color: red;">*</span></label>
-            <input type="number" id="inter-turns" min="1" placeholder="e.g., 10" required />
+            <label>Evaluated Model</label>
+            <select id="inter-model" onchange="filterIntercoderAssignmentTranscripts()">
+              <option value="">All models</option>
+            </select>
           </div>
         </div>
-        <div style="margin-top: 15px;">
-          <label>Instructions/Notes</label>
-          <textarea id="inter-notes" placeholder="Any specific instructions..." style="height: 60px;"></textarea>
+        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 12px;">
+          <div>
+            <label>Category</label>
+            <select id="inter-category" onchange="filterIntercoderAssignmentTranscripts()">
+              <option value="">All categories</option>
+            </select>
+          </div>
+          <div>
+            <label>Seed Prompt ID</label>
+            <select id="inter-prompt-id" onchange="filterIntercoderAssignmentTranscripts()">
+              <option value="">All prompts</option>
+            </select>
+          </div>
         </div>
-        <div style="margin-top: 15px;">
+        <div style="margin-bottom: 12px;">
+          <label>Available Transcripts/Sessions <span style="color: red;">*</span></label>
+          <select id="inter-session" size="5" style="width: 100%; font-family: monospace; font-size: 11px;" required>
+            <option value="">Select filters above to see available transcripts...</option>
+          </select>
+          <p class="small" style="margin-top: 5px; color: #666;" id="inter-transcript-count"></p>
+        </div>
+        <div style="margin-bottom: 12px;">
+          <label>Instructions/Notes</label>
+          <textarea id="inter-notes" placeholder="Any specific instructions..." style="height: 60px; width: 100%;"></textarea>
+        </div>
+        <div>
           <button onclick="saveAssignment('intercoder')" style="background: #6f42c1; color: white; border-color: #6f42c1;">Create Assignment</button>
           <button onclick="cancelAssignmentForm('intercoder')" style="margin-left: 10px;">Cancel</button>
         </div>
@@ -531,16 +556,17 @@
           <tr>
             <th style="width: 10%;">Assigned</th>
             <th style="width: 8%;">RA</th>
-            <th style="width: 20%;">Session ID</th>
-            <th style="width: 8%;">Target</th>
+            <th style="width: 12%;">Model</th>
+            <th style="width: 12%;">Category</th>
+            <th style="width: 10%;">Prompt</th>
+            <th style="width: 8%;">Interface</th>
             <th style="width: 10%;">Status</th>
-            <th style="width: 8%;">Actual</th>
-            <th style="width: 26%;">Notes</th>
+            <th style="width: 20%;">Notes</th>
             <th style="width: 10%;">Actions</th>
           </tr>
         </thead>
         <tbody id="intercoder-table-body">
-          <tr><td colspan="8" style="text-align: center; color: #666;">Loading...</td></tr>
+          <tr><td colspan="9" style="text-align: center; color: #666;">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -618,26 +644,53 @@
 
 <div id="intercoder-tab" class="tab-content">
   <div style="margin-bottom: 20px;">
-    <h3>Second Grading of Assistant Responses from Chat Interface</h3>
-    <p class="small">Review and grade assistant responses for intercoder reliability analysis</p>
+    <h3>Unified Regrading Interface</h3>
+    <p class="small">Regrade assistant responses from both Chat UI and API transcripts</p>
   </div>
 
-  <div class="grid2" style="margin-bottom: 20px;">
+  <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px;">
     <div>
-      <label>RA Pseudonym</label>
+      <label>RA Pseudonym <span style="color: red;">*</span></label>
       <input id="intercoder-ra" type="text" placeholder="eg. RA07" />
     </div>
     <div>
-      <label>Session ID</label>
-      <select id="intercoder-session">
-        <option value="">Select a session...</option>
+      <label>Evaluated Model</label>
+      <select id="intercoder-model" onchange="filterIntercoderTranscripts()">
+        <option value="">All models</option>
+      </select>
+    </div>
+    <div>
+      <label>Category</label>
+      <select id="intercoder-category" onchange="filterIntercoderTranscripts()">
+        <option value="">All categories</option>
+      </select>
+    </div>
+    <div>
+      <label>Seed Prompt ID</label>
+      <select id="intercoder-prompt-id" onchange="filterIntercoderTranscripts()">
+        <option value="">All prompts</option>
+      </select>
+    </div>
+    <div>
+      <label>Interface</label>
+      <select id="intercoder-interface" onchange="filterIntercoderTranscripts()">
+        <option value="">All interfaces</option>
+        <option value="chat_ui">Chat UI</option>
+        <option value="api">API</option>
       </select>
     </div>
   </div>
 
+  <div id="intercoder-transcript-selector" style="margin-bottom: 20px;">
+    <label>Available Transcripts <span id="intercoder-count" class="small" style="margin-left: 10px;"></span></label>
+    <select id="intercoder-session" size="8" style="width: 100%; font-family: monospace; font-size: 12px;">
+      <option value="">Select a transcript...</option>
+    </select>
+  </div>
+
   <div style="margin-bottom: 20px;">
-    <button onclick="loadIntercoderSession()" style="background: #007bff; color: white; border-color: #007bff;">Load Session</button>
-    <button onclick="refreshIntercoderSessions()" style="margin-left: 10px;">Refresh Sessions</button>
+    <button onclick="loadIntercoderSession()" style="background: #007bff; color: white; border-color: #007bff;">Load Transcript</button>
+    <button onclick="refreshIntercoderSessions()" style="margin-left: 10px;">Refresh Transcripts</button>
     <span class="small" id="intercoder-status"></span>
   </div>
 
@@ -715,7 +768,7 @@
 <div id="api-regrading-tab" class="tab-content">
   <div style="margin-bottom: 20px;">
     <h3>API Transcript Regrading</h3>
-    <p class="small">Review and grade assistant responses from API conversations</p>
+    <p class="small">Grade assistant responses from API conversations</p>
   </div>
 
   <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;">
@@ -1859,9 +1912,13 @@ function clearAssignmentForm(taskType) {
     document.getElementById('conv-notes').value = '';
   } else if (taskType === 'intercoder') {
     document.getElementById('inter-ra').value = '';
-    document.getElementById('inter-session').selectedIndex = 0; // Reset dropdown to first option
-    document.getElementById('inter-turns').value = '';
+    document.getElementById('inter-interface').selectedIndex = 0;
+    document.getElementById('inter-model').selectedIndex = 0;
+    document.getElementById('inter-category').selectedIndex = 0;
+    document.getElementById('inter-prompt-id').selectedIndex = 0;
+    document.getElementById('inter-session').innerHTML = '<option value="">Select filters above to see available transcripts...</option>';
     document.getElementById('inter-notes').value = '';
+    document.getElementById('inter-transcript-count').textContent = '';
   } else if (taskType === 'api') {
     document.getElementById('assign-api-ra').value = '';
     document.getElementById('assign-api-model').value = '';
@@ -1907,36 +1964,111 @@ function filterConvSeedPrompts() {
 }
 
 // Load completed conversation sessions for intercoder assignments
+// State for intercoder assignment form
+let INTERCODER_ASSIGNMENT_TRANSCRIPTS = [];
+
 async function loadCompletedSessionsForIntercoder() {
   try {
-    // Get all sessions from the sessions table
-    const response = await fetch(`${BASE}/api/sessions`);
+    // Load unified transcripts for assignment form
+    const response = await fetch(`${BASE}/api/unified_transcripts`);
     if (!response.ok) return;
 
     const data = await response.json();
-    const sessions = data.sessions || [];
+    INTERCODER_ASSIGNMENT_TRANSCRIPTS = data.transcripts || [];
 
-    const sessionSelect = document.getElementById('inter-session');
-    sessionSelect.innerHTML = '<option value="">Select session...</option>';
+    // Populate filter dropdowns
+    const models = [...new Set(INTERCODER_ASSIGNMENT_TRANSCRIPTS.map(t => t.model))].sort();
+    const categories = [...new Set(INTERCODER_ASSIGNMENT_TRANSCRIPTS.map(t => t.category).filter(c => c))].sort();
+    const promptIds = [...new Set(INTERCODER_ASSIGNMENT_TRANSCRIPTS.map(t => t.prompt_id))].sort();
 
-    // Sort by created_at descending (newest first)
-    const sortedSessions = sessions.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
-
-    sortedSessions.forEach(session => {
+    const modelSelect = document.getElementById('inter-model');
+    modelSelect.innerHTML = '<option value="">All models</option>';
+    models.forEach(m => {
       const opt = document.createElement('option');
-      opt.value = session.session_id;
-      opt.textContent = session.session_id;
-      sessionSelect.appendChild(opt);
+      opt.value = m;
+      opt.textContent = m;
+      modelSelect.appendChild(opt);
     });
 
-    if (sessions.length === 0) {
-      sessionSelect.innerHTML = '<option value="">No sessions available</option>';
-    }
+    const categorySelect = document.getElementById('inter-category');
+    categorySelect.innerHTML = '<option value="">All categories</option>';
+    categories.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      categorySelect.appendChild(opt);
+    });
+
+    const promptIdSelect = document.getElementById('inter-prompt-id');
+    promptIdSelect.innerHTML = '<option value="">All prompts</option>';
+    promptIds.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p;
+      promptIdSelect.appendChild(opt);
+    });
+
+    // Initial filter
+    filterIntercoderAssignmentTranscripts();
   } catch (error) {
-    console.error('Error loading sessions:', error);
-    const sessionSelect = document.getElementById('inter-session');
-    sessionSelect.innerHTML = '<option value="">Error loading sessions</option>';
+    console.error('Error loading transcripts:', error);
   }
+}
+
+function filterIntercoderAssignmentTranscripts() {
+  const interfaceFilter = document.getElementById('inter-interface').value;
+  const model = document.getElementById('inter-model').value;
+  const category = document.getElementById('inter-category').value;
+  const promptId = document.getElementById('inter-prompt-id').value;
+
+  let filtered = INTERCODER_ASSIGNMENT_TRANSCRIPTS;
+
+  if (interfaceFilter) {
+    filtered = filtered.filter(t => t.interface === interfaceFilter);
+  }
+  if (model) {
+    filtered = filtered.filter(t => t.model === model);
+  }
+  if (category) {
+    filtered = filtered.filter(t => t.category === category);
+  }
+  if (promptId) {
+    filtered = filtered.filter(t => t.prompt_id === promptId);
+  }
+
+  const sessionSelect = document.getElementById('inter-session');
+  sessionSelect.innerHTML = '';
+
+  if (filtered.length === 0) {
+    sessionSelect.innerHTML = '<option value="">No transcripts match filters</option>';
+    document.getElementById('inter-transcript-count').textContent = '';
+    return;
+  }
+
+  filtered.forEach(transcript => {
+    const opt = document.createElement('option');
+    opt.value = transcript.id;
+    opt.dataset.interface = transcript.interface;
+
+    if (transcript.interface === 'chat_ui') {
+      opt.dataset.sessionId = transcript.session_id;
+      opt.dataset.model = transcript.model;
+      opt.dataset.category = transcript.category;
+      opt.dataset.promptId = transcript.prompt_id;
+      opt.textContent = `[Chat UI] ${transcript.session_id} | ${transcript.model} | ${transcript.category} | ${transcript.prompt_id}`;
+    } else {
+      opt.dataset.model = transcript.model;
+      opt.dataset.category = transcript.category;
+      opt.dataset.promptId = transcript.prompt_id;
+      opt.dataset.runIndex = transcript.run_index;
+      opt.dataset.convoIndex = transcript.convo_index;
+      opt.textContent = `[API] ${transcript.model} | ${transcript.category} | ${transcript.prompt_id} | Run ${transcript.run_index} Conv ${transcript.convo_index}`;
+    }
+
+    sessionSelect.appendChild(opt);
+  });
+
+  document.getElementById('inter-transcript-count').textContent = `${filtered.length} transcript(s) available`;
 }
 
 // Load API transcripts for API assignments
@@ -2030,12 +2162,34 @@ async function saveAssignment(taskType) {
     }
   } else if (taskType === 'intercoder') {
     assignmentData.ra_pseudonym = document.getElementById('inter-ra').value.trim();
-    assignmentData.session_id = document.getElementById('inter-session').value.trim();
-    assignmentData.target_turns = parseInt(document.getElementById('inter-turns').value);
+    const selectedTranscriptId = document.getElementById('inter-session').value.trim();
     assignmentData.notes = document.getElementById('inter-notes').value.trim();
-    assignmentData.assigned_model = 'N/A'; // Required field but not applicable
+    assignmentData.target_turns = 0; // Not used for intercoder assignments
 
-    if (!assignmentData.ra_pseudonym || !assignmentData.session_id || !assignmentData.target_turns) {
+    // Get the selected option to extract metadata
+    const select = document.getElementById('inter-session');
+    const selectedOption = select.options[select.selectedIndex];
+    const interfaceType = selectedOption.dataset.interface;
+
+    if (interfaceType === 'chat_ui') {
+      // For Chat UI sessions
+      assignmentData.session_id = selectedOption.dataset.sessionId;
+      assignmentData.assigned_model = selectedOption.dataset.model;
+      assignmentData.scenario_category = selectedOption.dataset.category;
+      assignmentData.seed_prompt_id = selectedOption.dataset.promptId;
+    } else if (interfaceType === 'api') {
+      // For API transcripts
+      assignmentData.api_model = selectedOption.dataset.model;
+      assignmentData.api_category = selectedOption.dataset.category;
+      assignmentData.api_prompt_id = selectedOption.dataset.promptId;
+      assignmentData.api_run_index = parseInt(selectedOption.dataset.runIndex);
+      assignmentData.api_convo_index = parseInt(selectedOption.dataset.convoIndex);
+      assignmentData.assigned_model = selectedOption.dataset.model;
+      assignmentData.scenario_category = selectedOption.dataset.category;
+      assignmentData.seed_prompt_id = selectedOption.dataset.promptId;
+    }
+
+    if (!assignmentData.ra_pseudonym || !selectedTranscriptId) {
       alert('Please fill in all required fields');
       return;
     }
@@ -2194,21 +2348,30 @@ function renderIntercoderAssignments(assignments) {
   const tableBody = document.getElementById('intercoder-table-body');
 
   if (assignments.length === 0) {
-    tableBody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #666;">No intercoder assignments found</td></tr>';
+    tableBody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: #666;">No intercoder assignments found</td></tr>';
     return;
   }
 
   tableBody.innerHTML = assignments.map(assignment => {
     const assignedDate = assignment.assigned_at ? new Date(assignment.assigned_at * 1000).toLocaleDateString() : 'N/A';
 
+    // Determine if this is a chat UI or API assignment
+    const isAPI = assignment.api_model || assignment.api_category || assignment.api_prompt_id;
+    const model = isAPI ? (assignment.api_model || 'N/A') : (assignment.assigned_model || 'N/A');
+    const category = isAPI ? (assignment.api_category || 'N/A') : (assignment.scenario_category || 'N/A');
+    const promptId = isAPI ? (assignment.api_prompt_id || 'N/A') : (assignment.seed_prompt_id || 'N/A');
+    const interfaceType = isAPI ? 'API' : 'Chat UI';
+
     return `
       <tr>
-        <td>${assignedDate}</td>
+        <td style="font-size: 10px;">${assignedDate}</td>
         <td>${assignment.ra_pseudonym || 'N/A'}</td>
-        <td class="mono" style="font-size: 10px;">${assignment.session_id || 'N/A'}</td>
-        <td>${assignment.target_turns || 0}</td>
+        <td style="font-size: 10px;">${model}</td>
+        <td style="font-size: 10px;">${category}</td>
+        <td style="font-size: 10px;">${promptId}</td>
+        <td style="font-size: 10px;">${interfaceType}</td>
         <td>
-          <select onchange="updateAssignmentStatus(${assignment.id}, this.value)" style="font-size: 11px; width: 100%;">
+          <select onchange="updateAssignmentStatus(${assignment.id}, this.value)" style="font-size: 10px; width: 100%;">
             <option value="assigned" ${assignment.status === 'assigned' ? 'selected' : ''}>Assigned</option>
             <option value="in_progress" ${assignment.status === 'in_progress' ? 'selected' : ''}>In Progress</option>
             <option value="completed" ${assignment.status === 'completed' ? 'selected' : ''}>Completed</option>
@@ -2216,18 +2379,13 @@ function renderIntercoderAssignments(assignments) {
           </select>
         </td>
         <td>
-          <input type="number" value="${assignment.actual_turns || 0}" min="0"
-                 onchange="updateActualTurns(${assignment.id}, this.value)"
-                 style="width: 45px; font-size: 11px;" />
-        </td>
-        <td>
           <div style="display: flex; gap: 4px; align-items: center;">
-            <textarea id="notes-${assignment.id}" style="width: 100%; min-height: 50px; font-size: 11px; padding: 4px; resize: vertical;">${assignment.notes || ''}</textarea>
-            <button onclick="saveNotesInline(${assignment.id})" style="background: #28a745; color: white; border: none; padding: 4px 6px; font-size: 10px; white-space: nowrap;">Save</button>
+            <textarea id="notes-${assignment.id}" style="width: 100%; min-height: 40px; font-size: 10px; padding: 4px; resize: vertical;">${assignment.notes || ''}</textarea>
+            <button onclick="saveNotesInline(${assignment.id})" style="background: #28a745; color: white; border: none; padding: 4px 6px; font-size: 9px; white-space: nowrap;">Save</button>
           </div>
         </td>
         <td>
-          <button onclick="deleteAssignment(${assignment.id}, 'intercoder')" style="background: #dc3545; color: white; border: none; padding: 4px 8px; font-size: 11px;">Delete</button>
+          <button onclick="deleteAssignment(${assignment.id}, 'intercoder')" style="background: #dc3545; color: white; border: none; padding: 4px 8px; font-size: 10px;">Delete</button>
         </td>
       </tr>
     `;
@@ -2392,55 +2550,180 @@ let INTERCODER_STATE = {
   raPseudonym: null,
   transcript: [],
   assistantTurns: [], // Array of {userTurn, assistantTurn, userContent, assistantContent}
-  currentIndex: 0
+  currentIndex: 0,
+  interface: null, // 'chat_ui' or 'api'
+  allTranscripts: [], // All available transcripts
+  filteredTranscripts: [] // Filtered transcripts based on dropdown selections
 };
 
 async function refreshIntercoderSessions() {
   try {
-    const response = await fetch(`${BASE}/api/sessions`);
+    const response = await fetch(`${BASE}/api/unified_transcripts`);
     if (!response.ok) {
-      console.error('Failed to fetch sessions');
+      console.error('Failed to fetch transcripts');
       return;
     }
 
     const data = await response.json();
-    const sessions = data.sessions || [];
+    INTERCODER_STATE.allTranscripts = data.transcripts || [];
 
-    const select = document.getElementById('intercoder-session');
-    select.innerHTML = '<option value="">Select a session...</option>';
+    // Populate filter dropdowns with unique values
+    const models = [...new Set(INTERCODER_STATE.allTranscripts.map(t => t.model))].sort();
+    const categories = [...new Set(INTERCODER_STATE.allTranscripts.map(t => t.category).filter(c => c))].sort();
+    const promptIds = [...new Set(INTERCODER_STATE.allTranscripts.map(t => t.prompt_id))].sort();
 
-    sessions.forEach(session => {
-      const option = document.createElement('option');
-      option.value = session.session_id;
-      option.textContent = `${session.session_id.substring(0, 8)}... - ${session.ra_pseudonym || 'N/A'} - ${session.scenario_id || 'N/A'}`;
-      select.appendChild(option);
+    const modelSelect = document.getElementById('intercoder-model');
+    modelSelect.innerHTML = '<option value="">All models</option>';
+    models.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      modelSelect.appendChild(opt);
     });
 
-    document.getElementById('intercoder-status').textContent = `${sessions.length} session(s) available`;
+    const categorySelect = document.getElementById('intercoder-category');
+    categorySelect.innerHTML = '<option value="">All categories</option>';
+    categories.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      categorySelect.appendChild(opt);
+    });
+
+    const promptIdSelect = document.getElementById('intercoder-prompt-id');
+    promptIdSelect.innerHTML = '<option value="">All prompts</option>';
+    promptIds.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p;
+      promptIdSelect.appendChild(opt);
+    });
+
+    document.getElementById('intercoder-status').textContent = `Loaded ${INTERCODER_STATE.allTranscripts.length} transcripts`;
+
+    // Apply initial filter
+    filterIntercoderTranscripts();
   } catch (error) {
-    console.error('Error loading sessions:', error);
-    alert('Error loading sessions: ' + error.message);
+    console.error('Error loading transcripts:', error);
+    alert('Error loading transcripts: ' + error.message);
   }
+}
+
+function filterIntercoderTranscripts() {
+  const model = document.getElementById('intercoder-model').value;
+  const category = document.getElementById('intercoder-category').value;
+  const promptId = document.getElementById('intercoder-prompt-id').value;
+  const interfaceFilter = document.getElementById('intercoder-interface').value;
+
+  let filtered = INTERCODER_STATE.allTranscripts;
+
+  if (model) {
+    filtered = filtered.filter(t => t.model === model);
+  }
+  if (category) {
+    filtered = filtered.filter(t => t.category === category);
+  }
+  if (promptId) {
+    filtered = filtered.filter(t => t.prompt_id === promptId);
+  }
+  if (interfaceFilter) {
+    filtered = filtered.filter(t => t.interface === interfaceFilter);
+  }
+
+  INTERCODER_STATE.filteredTranscripts = filtered;
+
+  // Update the transcript list
+  const select = document.getElementById('intercoder-session');
+  select.innerHTML = '<option value="">Select a transcript...</option>';
+
+  filtered.forEach(transcript => {
+    const option = document.createElement('option');
+    option.value = transcript.id;
+    option.dataset.interface = transcript.interface;
+
+    if (transcript.interface === 'chat_ui') {
+      option.dataset.sessionId = transcript.session_id;
+      option.textContent = `[Chat UI] ${transcript.session_id} | ${transcript.model} | ${transcript.category} | ${transcript.prompt_id} | ${transcript.turn_count} turns`;
+    } else {
+      option.dataset.model = transcript.model;
+      option.dataset.category = transcript.category;
+      option.dataset.promptId = transcript.prompt_id;
+      option.dataset.runIndex = transcript.run_index;
+      option.dataset.convoIndex = transcript.convo_index;
+      option.textContent = `[API] ${transcript.model} | ${transcript.category} | ${transcript.prompt_id} | Run ${transcript.run_index} Conv ${transcript.convo_index} | ${transcript.turn_count} turns`;
+    }
+
+    select.appendChild(option);
+  });
+
+  const countText = `(${filtered.length} matching)`;
+  document.getElementById('intercoder-count').textContent = countText;
+  document.getElementById('intercoder-status').textContent = `${filtered.length} of ${INTERCODER_STATE.allTranscripts.length} transcripts match filters`;
 }
 
 async function loadIntercoderSession() {
   const raPseudonym = document.getElementById('intercoder-ra').value.trim();
-  const sessionId = document.getElementById('intercoder-session').value.trim();
+  const selectedId = document.getElementById('intercoder-session').value.trim();
 
-  if (!raPseudonym || !sessionId) {
-    alert('Please enter both RA Pseudonym and Session ID');
+  if (!raPseudonym || !selectedId) {
+    alert('Please enter RA Pseudonym and select a transcript');
     return;
   }
 
-  try {
-    const response = await fetch(`${BASE}/api/session/${encodeURIComponent(sessionId)}/transcript`);
-    if (!response.ok) {
-      alert('Failed to load session. Please check the Session ID.');
-      return;
-    }
+  // Get the selected option to determine interface type
+  const select = document.getElementById('intercoder-session');
+  const selectedOption = select.options[select.selectedIndex];
+  const interfaceType = selectedOption.dataset.interface;
 
-    const data = await response.json();
-    const transcript = data.transcript || [];
+  INTERCODER_STATE.interface = interfaceType;
+  INTERCODER_STATE.raPseudonym = raPseudonym;
+
+  try {
+    let transcript = [];
+
+    if (interfaceType === 'chat_ui') {
+      // Load Chat UI session
+      const sessionId = selectedOption.dataset.sessionId;
+      const response = await fetch(`${BASE}/api/session/${encodeURIComponent(sessionId)}/transcript`);
+      if (!response.ok) {
+        alert('Failed to load session transcript.');
+        return;
+      }
+      const data = await response.json();
+      transcript = data.transcript || [];
+      INTERCODER_STATE.sessionId = sessionId;
+
+    } else if (interfaceType === 'api') {
+      // Load API transcript
+      const model = selectedOption.dataset.model;
+      const category = selectedOption.dataset.category;
+      const promptId = selectedOption.dataset.promptId;
+      const runIndex = selectedOption.dataset.runIndex;
+      const convoIndex = selectedOption.dataset.convoIndex;
+
+      const params = new URLSearchParams({
+        model: model,
+        category: category,
+        prompt_id: promptId,
+        run_index: runIndex,
+        convo_index: convoIndex
+      });
+
+      const response = await fetch(`${BASE}/api/api_transcript?${params}`);
+      if (!response.ok) {
+        alert('Failed to load API transcript.');
+        return;
+      }
+      const data = await response.json();
+      transcript = data.transcript || [];
+
+      // Store API-specific identifiers
+      INTERCODER_STATE.model = model;
+      INTERCODER_STATE.category = category;
+      INTERCODER_STATE.promptId = promptId;
+      INTERCODER_STATE.runIndex = runIndex;
+      INTERCODER_STATE.convoIndex = convoIndex;
+    }
 
     // Build pairs of user + assistant turns
     const pairs = [];
@@ -2451,8 +2734,8 @@ async function loadIntercoderSession() {
         const userTurn = transcript.slice(0, i).reverse().find(t => t.role === 'user');
         if (userTurn) {
           pairs.push({
-            userTurn: userTurn.turn_index,
-            assistantTurn: turn.turn_index,
+            userTurn: userTurn.turn_index !== undefined ? userTurn.turn_index : i - 1,
+            assistantTurn: turn.turn_index !== undefined ? turn.turn_index : i,
             userContent: userTurn.content,
             assistantContent: turn.content
           });
@@ -2461,24 +2744,22 @@ async function loadIntercoderSession() {
     }
 
     if (pairs.length === 0) {
-      alert('No assistant turns found in this session.');
+      alert('No assistant turns found in this transcript.');
       return;
     }
 
-    INTERCODER_STATE.sessionId = sessionId;
-    INTERCODER_STATE.raPseudonym = raPseudonym;
     INTERCODER_STATE.transcript = transcript;
     INTERCODER_STATE.assistantTurns = pairs;
     INTERCODER_STATE.currentIndex = 0;
 
-    document.getElementById('intercoder-status').textContent = `Loaded ${pairs.length} assistant turn(s)`;
+    document.getElementById('intercoder-status').textContent = `Loaded ${pairs.length} assistant turn(s) from ${interfaceType === 'chat_ui' ? 'Chat UI' : 'API'}`;
     document.getElementById('intercoder-content').style.display = 'block';
 
     setupIntercoderAnnotationButtons();
     displayIntercoderTurn();
   } catch (error) {
-    console.error('Error loading session:', error);
-    alert('Error loading session: ' + error.message);
+    console.error('Error loading transcript:', error);
+    alert('Error loading transcript: ' + error.message);
   }
 }
 
@@ -2652,10 +2933,12 @@ async function addIntercoderHighlight() {
   const pair = INTERCODER_STATE.assistantTurns[INTERCODER_STATE.currentIndex];
 
   try {
-    const response = await fetch(`${BASE}/api/second_human_scores`, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
+    let endpoint, payload;
+
+    if (INTERCODER_STATE.interface === 'chat_ui') {
+      // Use second_human_scores endpoint for chat UI
+      endpoint = `${BASE}/api/second_human_scores`;
+      payload = {
         session_id: INTERCODER_STATE.sessionId,
         ra_pseudonym: INTERCODER_STATE.raPseudonym,
         turn_index: pair.assistantTurn,
@@ -2663,7 +2946,29 @@ async function addIntercoderHighlight() {
         strength: strength,
         start_char: sel.start,
         end_char: sel.end
-      })
+      };
+    } else if (INTERCODER_STATE.interface === 'api') {
+      // Use api_human_scores endpoint for API transcripts
+      endpoint = `${BASE}/api/api_human_scores`;
+      payload = {
+        model: INTERCODER_STATE.model,
+        category: INTERCODER_STATE.category,
+        prompt_id: INTERCODER_STATE.promptId,
+        run_index: INTERCODER_STATE.runIndex,
+        convo_index: INTERCODER_STATE.convoIndex,
+        turn_index: pair.assistantTurn,
+        ra_pseudonym: INTERCODER_STATE.raPseudonym,
+        label: label,
+        strength: strength,
+        start_char: sel.start,
+        end_char: sel.end
+      };
+    }
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) {
@@ -2685,7 +2990,22 @@ async function loadIntercoderHighlights() {
   if (!pair) return;
 
   try {
-    const response = await fetch(`${BASE}/api/second_human_scores?session_id=${encodeURIComponent(INTERCODER_STATE.sessionId)}&turn_index=${pair.assistantTurn}`);
+    let url;
+    if (INTERCODER_STATE.interface === 'chat_ui') {
+      url = `${BASE}/api/second_human_scores?session_id=${encodeURIComponent(INTERCODER_STATE.sessionId)}&turn_index=${pair.assistantTurn}`;
+    } else if (INTERCODER_STATE.interface === 'api') {
+      const params = new URLSearchParams({
+        model: INTERCODER_STATE.model,
+        category: INTERCODER_STATE.category,
+        prompt_id: INTERCODER_STATE.promptId,
+        run_index: INTERCODER_STATE.runIndex,
+        convo_index: INTERCODER_STATE.convoIndex,
+        turn_index: pair.assistantTurn
+      });
+      url = `${BASE}/api/api_human_scores?${params}`;
+    }
+
+    const response = await fetch(url);
     if (!response.ok) return;
 
     const data = await response.json();
@@ -2710,7 +3030,14 @@ async function loadIntercoderHighlights() {
 
 async function deleteIntercoderHighlight(id) {
   try {
-    const response = await fetch(`${BASE}/api/second_human_scores/${id}`, {
+    let endpoint;
+    if (INTERCODER_STATE.interface === 'chat_ui') {
+      endpoint = `${BASE}/api/second_human_scores/${id}`;
+    } else if (INTERCODER_STATE.interface === 'api') {
+      endpoint = `${BASE}/api/api_human_scores/${id}`;
+    }
+
+    const response = await fetch(endpoint, {
       method: "DELETE"
     });
 

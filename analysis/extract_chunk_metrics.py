@@ -85,7 +85,7 @@ def extract_chunk_metrics(json_path):
 
 def main():
     # Process only specific JSON files
-    res_dir = Path('results')
+    res_dir = Path('res_v0.2')
     target_files = [
         'gpt-5-chat-latest.json',
         'chatgpt-4o-latest.json'
@@ -116,7 +116,7 @@ def main():
     print(f"Unique labels: {df['label'].nunique()}")
 
     # Save to CSV
-    output_path = 'api_llm_scores.csv'
+    output_path = 'api_llm_scores_old.csv'
     df.to_csv(output_path, index=False)
     print(f"\nSaved to {output_path}")
 

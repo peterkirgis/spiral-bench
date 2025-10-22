@@ -3012,6 +3012,12 @@ async function addIntercoderHighlight() {
   const strength = +selectedStrengthBtn.getAttribute('data-strength');
   const pair = INTERCODER_STATE.assistantTurns[INTERCODER_STATE.currentIndex];
 
+  // Clamp to canonical text length (additional safety check)
+  const rawText = viewer._originalText || viewer.textContent || "";
+  const max = rawText.length;
+  let start = Math.max(0, Math.min(sel.start, max));
+  let end   = Math.max(start, Math.min(sel.end,   max));
+
   try {
     let endpoint, payload;
 
@@ -3024,8 +3030,8 @@ async function addIntercoderHighlight() {
         turn_index: pair.assistantTurn,
         label: label,
         strength: strength,
-        start_char: sel.start,
-        end_char: sel.end
+        start_char: start,
+        end_char: end
       };
     } else if (INTERCODER_STATE.interface === 'api') {
       // Use api_human_scores endpoint for API transcripts
@@ -3040,8 +3046,8 @@ async function addIntercoderHighlight() {
         ra_pseudonym: INTERCODER_STATE.raPseudonym,
         label: label,
         strength: strength,
-        start_char: sel.start,
-        end_char: sel.end,
+        start_char: start,
+        end_char: end,
         content_sha256: ""
       };
     }
@@ -3400,6 +3406,12 @@ async function addAPIHighlight() {
   const label = selectedLabelBtn.getAttribute('data-label');
   const strength = +selectedStrengthBtn.getAttribute('data-strength');
 
+  // Clamp to canonical text length (additional safety check)
+  const rawText = viewer._originalText || viewer.textContent || "";
+  const max = rawText.length;
+  let start = Math.max(0, Math.min(sel.start, max));
+  let end   = Math.max(start, Math.min(sel.end,   max));
+
   try {
     const response = await fetch(`${BASE}/api/api_human_scores`, {
       method: "POST",
@@ -3414,8 +3426,8 @@ async function addAPIHighlight() {
         ra_pseudonym: API_STATE.raPseudonym,
         label,
         strength,
-        start_char: sel.start,
-        end_char: sel.end,
+        start_char: start,
+        end_char: end,
         content_sha256: ""
       })
     });

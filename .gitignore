@@ -5,3 +5,4 @@ experiments
 *.db*
 *.sh
 .vscode
+*.DS_Store

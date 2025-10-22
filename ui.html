@@ -62,12 +62,6 @@
     mark.both-grade { background: rgba(147, 112, 219, 0.4); padding: 0 2px; border-radius: 3px; }
 
     /* Selection preview */
-    .selection-preview {
-      background: transparent !important;
-      border-bottom: 2px solid #007bff !important;  /* underline-like */
-      outline: none !important;
-      pointer-events: none;
-    }
     .selection-info {
       position: sticky; top: 0; background: #f8f9fa; border: 1px solid #dee2e6;
       padding: 8px; margin: 8px 0; border-radius: 5px; font-size: 12px;
@@ -1190,31 +1184,6 @@ function normalizeEOL(s) {
   return (s || '').replace(/\r\n/g, '\n');
 }
 
-// Convert a (container, offset) endpoint into a linear index inside `root`
-function linearOffset(root, container, offset) {
-  // Walk through all text nodes and count characters until we reach the target
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
-  let charCount = 0;
-  let node;
-
-  while ((node = walker.nextNode())) {
-    if (node === container) {
-      return charCount + offset;
-    }
-    if (node.contains && node.contains(container)) {
-      // Container is within this node, recurse
-      continue;
-    }
-    charCount += node.length;
-    if (container.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING) {
-      // We've passed the container, it must be before this node
-      break;
-    }
-  }
-
-  return charCount;
-}
-
 // Map a linear [0..text.length] offset to a DOM Text node + local offset
 function offsetToDom(root, target) {
   const it = document.createNodeIterator(root, NodeFilter.SHOW_TEXT);
@@ -1238,6 +1207,11 @@ function rangeFromOffsets(root, start, end) {
 }
 
 function applyHighlights(viewer, text, incidents) {
+  // Clear any active selection to avoid DOM invalidation issues
+  if (window.getSelection && window.getSelection().rangeCount > 0) {
+    window.getSelection().removeAllRanges();
+  }
+
   const norm = normalizeEOL(text);
   // Render as plain text; your CSS uses `white-space: pre-wrap` so newlines show.
   viewer.textContent = norm;
@@ -1264,198 +1238,104 @@ function applyHighlights(viewer, text, incidents) {
   }
 }
 
-function renderWithHighlights(text, incidents) {
-  incidents = [...incidents].sort((a,b)=> a.start_char - b.start_char || a.end_char - b.end_char);
-  let out = "";
-  let i = 0;
-
-  // Create character position markers for each character
-  function wrapWithPositions(textSegment, startIndex) {
-    return textSegment.split('').map((char, idx) => {
-      const pos = startIndex + idx;
-      if (char === '\n') {
-        return `<span class="character-span" data-char-pos="${pos}" data-char="\n"><br></span>`;
-      }
-      return `<span class="character-span" data-char-pos="${pos}" data-char="${escapeHtmlLite(char)}">${escapeHtmlLite(char)}</span>`;
-    }).join('');
-  }
-
-  for (const inc of incidents) {
-    const s = inc.start_char, e = inc.end_char;
-    if (s > i) {
-      out += wrapWithPositions(text.slice(i, s), i);
-    }
-    const seg = text.slice(s, e);
-    out += `<mark class="hl ${inc.label}" data-id="${inc.id}" title="${inc.label} (s=${inc.strength})" data-start="${s}" data-end="${e}">${wrapWithPositions(seg, s)}</mark>`;
-    i = e;
-  }
-  if (i < text.length) {
-    out += wrapWithPositions(text.slice(i), i);
-  }
-
-  return out;
-}
-
 function getSelectionOffsetsWithin(el) {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return null;
   const range = sel.getRangeAt(0);
+
   if (!el.contains(range.commonAncestorContainer)) return null;
 
-  console.log('Raw range info:', {
-    startContainer: range.startContainer,
-    startOffset: range.startOffset,
-    endContainer: range.endContainer,
-    endOffset: range.endOffset,
-    isCollapsed: range.collapsed,
-    selectedText: range.toString()
-  });
-
-  const start = linearOffset(el, range.startContainer, range.startOffset);
-  const end   = linearOffset(el, range.endContainer, range.endOffset);
-
-  console.log('Linear offsets:', { start, end });
-
-  if (start == null || end == null) return null;
-
-  const a = Math.min(start, end);
-  const b = Math.max(start, end);
-  const originalText = getOriginalTextFromViewer(el);
-
-  console.log('Selection debug:', {
-    rawOffsets: { start: a, end: b },
-    textLength: originalText.length,
-    domTextLength: el.textContent.length,
-    hasOriginalText: !!el._originalText,
-    startContainer: range.startContainer.nodeType === Node.TEXT_NODE ? 'TEXT' : range.startContainer.nodeName,
-    endContainer: range.endContainer.nodeType === Node.TEXT_NODE ? 'TEXT' : range.endContainer.nodeName
-  });
-
-  // Clamp offsets to valid range
-  const clampedStart = Math.max(0, Math.min(a, originalText.length));
-  const clampedEnd = Math.max(clampedStart, Math.min(b, originalText.length));
-
-  // Validate offsets are within bounds
-  if (clampedStart < 0 || clampedEnd > originalText.length || clampedStart >= clampedEnd) {
-    console.error('Invalid selection offsets after clamping:', {
-      original: { start: a, end: b },
-      clamped: { start: clampedStart, end: clampedEnd },
-      textLength: originalText.length
-    });
-    return null;
-  }
-
-  return { start: clampedStart, end: clampedEnd, selectedText: originalText.slice(clampedStart, clampedEnd) };
-}
-
-function getCharacterPositionFromNode(node, offset) {
-  // Simple approach: find the nearest character position span
-  let current = node;
-
-  // If we're in a text node, look at the parent
-  if (current.nodeType === Node.TEXT_NODE) {
-    current = current.parentElement;
-  }
-
-  // Look for data-char-pos on current element or walk up the tree
-  while (current && current.nodeType === Node.ELEMENT_NODE) {
-    if (current.hasAttribute('data-char-pos')) {
-      const pos = parseInt(current.getAttribute('data-char-pos'), 10);
-      return pos + offset;
-    }
-
-    // If this is a mark element, check its position data
-    if (current.tagName === 'MARK' && current.hasAttribute('data-start')) {
-      const startPos = parseInt(current.getAttribute('data-start'), 10);
-      return startPos + offset;
-    }
-
-    current = current.parentElement;
-  }
-
-  // Fallback: scan all character position spans to find the closest one
-  const viewer = document.getElementById('assistantViewer');
-  const allSpans = Array.from(viewer.querySelectorAll('[data-char-pos]'));
-
-  // Find the span that contains or is closest to our node
-  for (let span of allSpans) {
-    if (span.contains(node) || span === node) {
-      const pos = parseInt(span.getAttribute('data-char-pos'), 10);
-      return pos + offset;
-    }
-  }
-
-  return null;
-}
-
-function normalizeSelection(el) {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return null;
-
-  const range = sel.getRangeAt(0);
-  if (!el.contains(range.commonAncestorContainer)) return null;
-
-  // Expand selection to word boundaries if it starts/ends in middle of words
-  let { startContainer, startOffset, endContainer, endOffset } = range;
-
-  // Normalize start position
-  const startResult = normalizeSelectionPoint(startContainer, startOffset, 'start');
-  if (startResult) {
-    startContainer = startResult.container;
-    startOffset = startResult.offset;
-  }
-
-  // Normalize end position
-  const endResult = normalizeSelectionPoint(endContainer, endOffset, 'end');
-  if (endResult) {
-    endContainer = endResult.container;
-    endOffset = endResult.offset;
-  }
-
-  // Create new normalized range
-  const normalizedRange = document.createRange();
   try {
-    normalizedRange.setStart(startContainer, startOffset);
-    normalizedRange.setEnd(endContainer, endOffset);
-    return normalizedRange;
+    // Compute DOM-based linear offsets by measuring text length from viewer start to the boundary.
+    const preStart = document.createRange();
+    preStart.setStart(el, 0);
+    preStart.setEnd(range.startContainer, range.startOffset);
+    const start = preStart.toString().length;
+
+    const preEnd = document.createRange();
+    preEnd.setStart(el, 0);
+    preEnd.setEnd(range.endContainer, range.endOffset);
+    const end = preEnd.toString().length;
+
+    const a = Math.min(start, end);
+    const b = Math.max(start, end);
+    const originalText = getOriginalTextFromViewer(el);
+
+    // Basic clamp
+    const clampedStart = Math.max(0, Math.min(a, originalText.length));
+    const clampedEnd = Math.max(clampedStart, Math.min(b, originalText.length));
+
+    if (clampedStart < clampedEnd) {
+      return { start: clampedStart, end: clampedEnd, selectedText: originalText.slice(clampedStart, clampedEnd) };
+    }
+
+    // --- fallback mapping: try to locate the snippet inside canonical text ---
+    const snippet = range.toString();
+    if (!snippet) return null;
+
+    // try exact search first
+    const occurrences = [];
+    let idx = originalText.indexOf(snippet);
+    while (idx !== -1) {
+      occurrences.push(idx);
+      idx = originalText.indexOf(snippet, idx + 1);
+    }
+    if (occurrences.length > 0) {
+      // pick occurrence closest to DOM-based start
+      const best = occurrences.reduce((bestIdx, cur) => {
+        if (bestIdx === null) return cur;
+        return Math.abs(cur - a) < Math.abs(bestIdx - a) ? cur : bestIdx;
+      }, null);
+      return { start: best, end: best + snippet.length, selectedText: originalText.slice(best, best + snippet.length) };
+    }
+
+    // Next: normalized whitespace search (collapses runs of whitespace)
+    const normalizedIndex = normalizedIndexOf(originalText, snippet);
+    if (normalizedIndex !== -1) {
+      return { start: normalizedIndex, end: normalizedIndex + snippet.length, selectedText: originalText.slice(normalizedIndex, normalizedIndex + snippet.length) };
+    }
+
+    // If no mapping found: return null
+    return null;
+
   } catch (e) {
-    console.warn('Could not create normalized range:', e);
-    return range; // Return original range if normalization fails
+    console.error('Error computing selection offsets:', e);
+    return null;
   }
 }
 
-function normalizeSelectionPoint(container, offset, type) {
-  // If we're at the boundary of a character span, adjust to avoid splitting characters
-  if (container.nodeType === Node.TEXT_NODE && container.parentElement?.hasAttribute('data-char-pos')) {
-    // We're in a character span - this is already normalized
-    return null;
-  }
-
-  // If we're between elements, find the appropriate character span
-  if (container.nodeType === Node.ELEMENT_NODE) {
-    const children = container.childNodes;
-
-    if (type === 'start') {
-      // For start position, look for the first available character span at or after offset
-      for (let i = offset; i < children.length; i++) {
-        const child = children[i];
-        if (child.nodeType === Node.ELEMENT_NODE && child.hasAttribute('data-char-pos')) {
-          return { container: child.firstChild || child, offset: 0 };
-        }
+// Helper: normalized search that collapses whitespace sequences for both strings and maps back
+function normalizedIndexOf(haystack, needle) {
+  // Normalize: map each char in haystack to index in original
+  const normHayChars = [];
+  let lastWasWS = false;
+  const normHay = [];
+  for (let i = 0; i < haystack.length; i++) {
+    const ch = haystack[i];
+    const isWS = /\s/.test(ch);
+    if (isWS) {
+      if (!lastWasWS) {
+        normHay.push(' ');
+        normHayChars.push(i); // map normalized char index -> original index (first char of the collapsed whitespace)
       }
+      lastWasWS = true;
     } else {
-      // For end position, look for the last available character span at or before offset
-      for (let i = Math.min(offset - 1, children.length - 1); i >= 0; i--) {
-        const child = children[i];
-        if (child.nodeType === Node.ELEMENT_NODE && child.hasAttribute('data-char-pos')) {
-          const textNode = child.firstChild;
-          return { container: textNode || child, offset: textNode ? textNode.textContent.length : 1 };
-        }
-      }
+      normHay.push(ch);
+      normHayChars.push(i);
+      lastWasWS = false;
     }
   }
+  const normHayStr = normHay.join('');
 
-  return null;
+  // Normalize needle
+  const normNeedle = needle.replace(/\s+/g, ' ').trim();
+  if (normNeedle.length === 0) return -1;
+
+  const idx = normHayStr.indexOf(normNeedle);
+  if (idx === -1) return -1;
+
+  // Map normalized index back to original index via normHayChars
+  return normHayChars[idx] || 0;
 }
 
 function getOriginalTextFromViewer(el) {
@@ -1524,30 +1404,13 @@ function handleSelectionChangeCore() {
   selectionRange.textContent = `Characters ${selection.start}-${selection.end}`;
   selectionLength.textContent = selection.selectedText.length;
 
-  addSelectionPreview(viewer, selection.start, selection.end);
+  // Selection preview is handled by browser's native selection UI
   updateAddHighlightButton();
 }
 
-let lastPreview = [];
-
+// Note: clearSelectionPreview is now a no-op since we rely on browser's native selection
 function clearSelectionPreview(viewer) {
-  for (const el of lastPreview) el.classList.remove('selection-preview');
-  lastPreview = [];
-}
-
-function addSelectionPreview(viewer, startPos, endPos) {
-  clearSelectionPreview(viewer);
-  let el = viewer.querySelector(`[data-char-pos="${startPos}"]`);
-  if (!el) return;
-  for (let pos = startPos; pos < endPos; pos++) {
-    if (!el || +el.getAttribute('data-char-pos') !== pos) {
-      el = viewer.querySelector(`[data-char-pos="${pos}"]`);
-      if (!el) continue;
-    }
-    el.classList.add('selection-preview');
-    lastPreview.push(el);
-    el = el.nextElementSibling;
-  }
+  // No-op: we don't use per-character spans anymore
 }
 
 function resetAnnotationControls() {
@@ -1577,7 +1440,6 @@ async function addSpanIncident() {
   const sel = getSelectionOffsetsWithin(viewer);
   if (!sel || sel.start === sel.end) return alert("Select text in the viewer first.");
 
-  // Get selected label from buttons
   const selectedLabelBtn = document.querySelector('.label-btn.selected');
   const selectedStrengthBtn = document.querySelector('.strength-btn.selected');
 
@@ -1587,7 +1449,37 @@ async function addSpanIncident() {
   const label = selectedLabelBtn.getAttribute('data-label');
   const strength = +selectedStrengthBtn.getAttribute('data-strength');
 
-  // Clamp to canonical text length
+  // Compare client canonical text to server's version for this turn
+  try {
+    const transcriptResp = await fetch(`${BASE}/api/session/${encodeURIComponent(SID)}/transcript`);
+    if (!transcriptResp.ok) {
+      console.warn('Could not fetch server transcript for verification.');
+    } else {
+      const transcriptData = await transcriptResp.json();
+      const serverTurn = (transcriptData.transcript || []).find(t => t.turn_index === turn && t.role === 'assistant');
+      if (serverTurn && typeof serverTurn.content === 'string') {
+        const serverText = normalizeEOL(serverTurn.content);
+        const clientText = getOriginalTextFromViewer(viewer);
+        if (serverText.length !== clientText.length || serverText !== clientText) {
+          // Helpful diagnostic for debugging
+          alert(`Text mismatch with server for turn ${turn}.\nServer length=${serverText.length}, client length=${clientText.length}.\nAborting add to avoid invalid offsets. Check that the logged turn content matches the viewer content.`);
+          console.error('Mismatch server vs client text for turn', {
+            serverSample: serverText.slice(0,200),
+            clientSample: clientText.slice(0,200),
+            serverLength: serverText.length,
+            clientLength: clientText.length
+          });
+          return;
+        }
+      } else {
+        console.warn('Server transcript did not have matching assistant turn; continuing with local text length checks.');
+      }
+    }
+  } catch (e) {
+    console.warn('Error fetching server transcript for verification:', e);
+  }
+
+  // All good: clamp to client canonical length and POST
   const rawText = getOriginalTextFromViewer(viewer);
   const max = rawText.length;
   let start = Math.max(0, Math.min(sel.start, max));
@@ -1600,7 +1492,10 @@ async function addSpanIncident() {
       start_char: start, end_char: end
     })
   });
-  if (!r.ok) return showErrorNotification(`Add highlight failed: ${await r.text()}`);
+  if (!r.ok) {
+    const text = await r.text().catch(()=>null);
+    return showErrorNotification(`Add highlight failed: ${text || r.status}`);
+  }
   await loadIncidents();
 }
 
@@ -3011,6 +2906,31 @@ async function addIntercoderHighlight() {
   const label = selectedLabelBtn.getAttribute('data-label');
   const strength = +selectedStrengthBtn.getAttribute('data-strength');
   const pair = INTERCODER_STATE.assistantTurns[INTERCODER_STATE.currentIndex];
+
+  // For Chat UI interface, verify client text matches server text
+  if (INTERCODER_STATE.interface === 'chat_ui') {
+    try {
+      const transcriptResp = await fetch(`${BASE}/api/session/${encodeURIComponent(INTERCODER_STATE.sessionId)}/transcript`);
+      if (transcriptResp.ok) {
+        const transcriptData = await transcriptResp.json();
+        const serverTurn = (transcriptData.transcript || []).find(t => t.turn_index === pair.assistantTurn && t.role === 'assistant');
+        if (serverTurn && typeof serverTurn.content === 'string') {
+          const serverText = normalizeEOL(serverTurn.content);
+          const clientText = normalizeEOL(viewer._originalText || viewer.textContent || "");
+          if (serverText.length !== clientText.length || serverText !== clientText) {
+            alert(`Text mismatch with server for turn ${pair.assistantTurn}.\nServer length=${serverText.length}, client length=${clientText.length}.\nAborting add to avoid invalid offsets.`);
+            console.error('Intercoder mismatch server vs client text', {
+              serverLength: serverText.length,
+              clientLength: clientText.length
+            });
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Error fetching server transcript for verification:', e);
+    }
+  }
 
   // Clamp to canonical text length (additional safety check)
   const rawText = viewer._originalText || viewer.textContent || "";

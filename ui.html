@@ -2752,18 +2752,23 @@ async function loadIntercoderTranscript() {
 
     // Build pairs of user + assistant turns
     const pairs = [];
+    let apiTurnIndex = 0; // Counter for API transcripts without turn_index
     for (let i = 0; i < transcriptData.length; i++) {
       const turn = transcriptData[i];
       if (turn.role === 'assistant') {
         // Find the previous user turn
         const userTurn = transcriptData.slice(0, i).reverse().find(t => t.role === 'user');
         if (userTurn) {
+          // For chat_ui: use turn_index from database
+          // For api: use apiTurnIndex counter so both user and assistant have same turn number
+          const turnIndex = turn.turn_index !== undefined ? turn.turn_index : apiTurnIndex;
           pairs.push({
-            userTurn: userTurn.turn_index !== undefined ? userTurn.turn_index : i - 1,
-            assistantTurn: turn.turn_index !== undefined ? turn.turn_index : i,
+            userTurn: turnIndex,
+            assistantTurn: turnIndex,
             userContent: userTurn.content,
             assistantContent: turn.content
           });
+          apiTurnIndex++; // Increment for next turn pair
         }
       }
     }

@@ -188,21 +188,21 @@
       </span>
     </button>
     <button class="nav-tab" onclick="switchTab('conversation', this)">
-      Conversation Runner
+      Chat UI Grading
       <span class="tab-info">i
-        <span class="tooltip-text">Run conversations with the AI model, annotate responses in real-time, and send evaluations to the judge model for automated grading.</span>
+        <span class="tooltip-text">Grade NEW Chat UI conversations. Run conversations with the model in the Chat UI, annotate responses in real-time, and send evaluations to the judge model.</span>
+      </span>
+    </button>
+    <button class="nav-tab" onclick="switchTab('api-grading', this)">
+      API Grading
+      <span class="tab-info">i
+        <span class="tooltip-text">Grade NEW API transcripts. First grader annotates API-generated conversations.</span>
       </span>
     </button>
     <button class="nav-tab" onclick="switchTab('intercoder', this)">
       Regrading
       <span class="tab-info">i
-        <span class="tooltip-text">Grade both Chat UI and API transcripts. Filter by RA pseudonym, evaluated model, category, seed prompt, and interface to review and annotate conversations for intercoder reliability analysis.</span>
-      </span>
-    </button>
-    <button class="nav-tab" onclick="switchTab('api-regrading', this)">
-      API Grading
-      <span class="tab-info">i
-        <span class="tooltip-text">Grade API transcripts. Filter by model, category, and prompt_id to review and annotate conversations.</span>
+        <span class="tooltip-text">REGRADE existing Chat UI and API transcripts. Second grader reviews and annotates conversations for intercoder reliability analysis.</span>
       </span>
     </button>
     <button class="nav-tab" onclick="switchTab('comparison', this)">
@@ -214,9 +214,13 @@
   </div>
 
   <div id="conversation-tab" class="tab-content">
+    <div style="margin-bottom: 20px;">
+      <h3>Conversation Runner and Chat UI Grading (First Grader)</h3>
+      <p class="small">Grade NEW Chat UI conversations. Run conversations with a model in the Chat UI, annotate responses in real-time.</p>
+    </div>
     <div class="grid">
       <div>
-      <label>RA pseudonym</label>
+      <label>RA Name</label>
       <input id="ra" type="text" placeholder="eg. RA07" />
     </div>
     <div>
@@ -232,7 +236,7 @@
       <input id="userModel" type="text" value="moonshotai/kimi-k2" />
     </div>
     <div>
-      <label>Category Instructions</label>
+      <label>Category</label>
       <select id="category" onchange="filterSeedPrompts()">
         <option value="">None</option>
         <option value="spiral_tropes">Spiral Tropes</option>
@@ -244,7 +248,7 @@
       </select>
     </div>
     <div>
-      <label>Seed Prompt</label>
+      <label>Seed Prompt ID</label>
       <select id="seedPrompt" onchange="updateSeedPrompt()">
         <option value="">Select a seed prompt...</option>
       </select>
@@ -401,24 +405,24 @@
 
     <!-- Navigation buttons to jump to each section -->
     <div style="margin-bottom: 20px; padding: 10px; background: #f0f0f0; border-radius: 8px; display: flex; gap: 10px;">
-      <button onclick="scrollToTaskType('conversation')" style="background: #007bff; color: white; border-color: #007bff;">→ Conversation Tasks</button>
-      <button onclick="scrollToTaskType('intercoder')" style="background: #6f42c1; color: white; border-color: #6f42c1;">→ Regrading</button>
-      <button onclick="scrollToTaskType('api')" style="background: #fd7e14; color: white; border-color: #fd7e14;">→ API Grading</button>
+      <button onclick="scrollToTaskType('conversation')" style="background: #007bff; color: white; border-color: #007bff;">→ Chat UI Grading Tasks</button>
+      <button onclick="scrollToTaskType('api')" style="background: #fd7e14; color: white; border-color: #fd7e14;">→ API Grading Tasks</button>
+      <button onclick="scrollToTaskType('intercoder')" style="background: #6f42c1; color: white; border-color: #6f42c1;">→ Regrading Tasks</button>
     </div>
 
-    <!-- CONVERSATION TASKS SECTION -->
+    <!-- CHAT UI TASKS SECTION -->
     <div id="conversation-tasks-section" style="margin-bottom: 40px; padding: 20px; border: 2px solid #007bff; border-radius: 10px; background: #f8f9fa;">
-      <h4 style="color: #007bff; margin-top: 0;">Conversation Tasks</h4>
+      <h4 style="color: #007bff; margin-top: 0;">Chat UI Grading Tasks</h4>
       <div style="margin-bottom: 15px;">
-        <button onclick="showAssignmentForm('conversation')" style="background: #28a745; color: white; border-color: #28a745;">+ Create Conversation Assignment</button>
+        <button onclick="showAssignmentForm('conversation')" style="background: #28a745; color: white; border-color: #28a745;">+ Create Chat UI Grading Assignment</button>
         <button onclick="refreshAssignments('conversation')" style="margin-left: 10px;">Refresh</button>
       </div>
 
       <div id="conversation-form" style="display: none; margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #fff;">
-        <h5 style="margin-top: 0;">New Conversation Task</h5>
+        <h5 style="margin-top: 0;">New Chat UI Grading Task</h5>
         <div class="grid2">
           <div>
-            <label>RA Pseudonym <span style="color: red;">*</span></label>
+            <label>RA Name <span style="color: red;">*</span></label>
             <input type="text" id="conv-ra" placeholder="eg. RA07" required />
           </div>
           <div>
@@ -436,7 +440,7 @@
             <input type="number" id="conv-turns" min="1" placeholder="e.g., 5" required />
           </div>
           <div>
-            <label>Scenario Category <span style="color: red;">*</span></label>
+            <label>Category <span style="color: red;">*</span></label>
             <select id="conv-category" onchange="filterConvSeedPrompts()" required>
               <option value="">Select category...</option>
               <option value="spiral_tropes">Spiral Tropes</option>
@@ -448,7 +452,7 @@
             </select>
           </div>
           <div style="grid-column: 1 / -1;">
-            <label>Seed Prompt <span style="color: red;">*</span></label>
+            <label>Seed Prompt ID<span style="color: red;">*</span></label>
             <select id="conv-seed-prompt" required>
               <option value="">Select a seed prompt...</option>
             </select>
@@ -470,7 +474,7 @@
             <tr>
               <th style="width: 8%;">Assigned</th>
               <th style="width: 6%;">RA</th>
-              <th style="width: 8%;">Seed Prompt</th>
+              <th style="width: 8%;">Seed Prompt ID</th>
               <th style="width: 8%;">Model</th>
               <th style="width: 6%;">Target</th>
               <th style="width: 8%;">Status</th>
@@ -487,6 +491,77 @@
       </div>
     </div>
 
+    <!-- API GRADING SECTION -->
+    <div id="api-tasks-section" style="margin-bottom: 40px; padding: 20px; border: 2px solid #fd7e14; border-radius: 10px; background: #f8f9fa;">
+      <h4 style="color: #fd7e14; margin-top: 0;">API Grading Tasks</h4>
+      <div style="margin-bottom: 15px;">
+        <button onclick="showAssignmentForm('api')" style="background: #28a745; color: white; border-color: #28a745;">+ Create API Grading Assignment</button>
+        <button onclick="refreshAssignments('api')" style="margin-left: 10px;">Refresh</button>
+      </div>
+
+      <div id="api-form" style="display: none; margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #fff;">
+        <h5 style="margin-top: 0;">New API Grading Task</h5>
+        <div class="grid2">
+          <div>
+            <label>RA Name <span style="color: red;">*</span></label>
+            <input type="text" id="assign-api-ra" placeholder="eg. RA07" required />
+          </div>
+          <div>
+            <label>API Model <span style="color: red;">*</span></label>
+            <select id="assign-api-model" onchange="filterApiPrompts()" required>
+              <option value="">Select model...</option>
+            </select>
+          </div>
+          <div>
+            <label>Category <span style="color: red;">*</span></label>
+            <select id="assign-api-category" onchange="filterApiPrompts()" required>
+              <option value="">Select category...</option>
+            </select>
+          </div>
+          <div>
+            <label>Seed Prompt ID <span style="color: red;">*</span></label>
+            <select id="assign-api-prompt-id" required>
+              <option value="">Select prompt...</option>
+            </select>
+          </div>
+          <div>
+            <label>Target Turns <span style="color: red;">*</span></label>
+            <input type="number" id="assign-api-turns" min="1" placeholder="e.g., 10" required />
+          </div>
+        </div>
+        <div style="margin-top: 15px;">
+          <label>Instructions/Notes</label>
+          <textarea id="assign-api-notes" placeholder="Any specific instructions..." style="height: 60px;"></textarea>
+        </div>
+        <div style="margin-top: 15px;">
+          <button onclick="saveAssignment('api')" style="background: #fd7e14; color: white; border-color: #fd7e14;">Create Assignment</button>
+          <button onclick="cancelAssignmentForm('api')" style="margin-left: 10px;">Cancel</button>
+        </div>
+      </div>
+
+      <div style="max-height: 600px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px;">
+        <table id="api-table">
+          <thead style="position: sticky; top: 0; background: #f8f9fa; z-index: 1;">
+            <tr>
+              <th style="width: 10%;">Assigned</th>
+              <th style="width: 8%;">RA</th>
+              <th style="width: 12%;">API Model</th>
+              <th style="width: 10%;">Category</th>
+              <th style="width: 10%;">Seed Prompt ID</th>
+              <th style="width: 8%;">Target</th>
+              <th style="width: 10%;">Status</th>
+              <th style="width: 8%;">Actual</th>
+              <th style="width: 14%;">Notes</th>
+              <th style="width: 10%;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="api-table-body">
+            <tr><td colspan="10" style="text-align: center; color: #666;">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- INTERCODER REGRADING SECTION -->
     <div id="intercoder-tasks-section" style="margin-bottom: 40px; padding: 20px; border: 2px solid #6f42c1; border-radius: 10px; background: #f8f9fa;">
       <h4 style="color: #6f42c1; margin-top: 0;">Regrading Tasks</h4>
@@ -496,10 +571,10 @@
       </div>
 
       <div id="intercoder-form" style="display: none; margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #fff;">
-        <h5 style="margin-top: 0;">New Unified Regrading Task</h5>
+        <h5 style="margin-top: 0;">New Regrading Task</h5>
         <div class="grid2">
           <div>
-            <label>RA Pseudonym <span style="color: red;">*</span></label>
+            <label>RA Name <span style="color: red;">*</span></label>
             <input type="text" id="inter-ra" placeholder="eg. RA07" required />
           </div>
           <div>
@@ -561,88 +636,17 @@
       </div>
     </div>
 
-    <!-- API REGRADING SECTION -->
-    <div id="api-tasks-section" style="margin-bottom: 40px; padding: 20px; border: 2px solid #fd7e14; border-radius: 10px; background: #f8f9fa;">
-      <h4 style="color: #fd7e14; margin-top: 0;">API Grading Tasks</h4>
-      <div style="margin-bottom: 15px;">
-        <button onclick="showAssignmentForm('api')" style="background: #28a745; color: white; border-color: #28a745;">+ Create API Assignment</button>
-        <button onclick="refreshAssignments('api')" style="margin-left: 10px;">Refresh</button>
-      </div>
-
-      <div id="api-form" style="display: none; margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; border-radius: 8px; background: #fff;">
-        <h5 style="margin-top: 0;">New API Grading Task</h5>
-        <div class="grid2">
-          <div>
-            <label>RA Pseudonym <span style="color: red;">*</span></label>
-            <input type="text" id="assign-api-ra" placeholder="eg. RA07" required />
-          </div>
-          <div>
-            <label>API Model <span style="color: red;">*</span></label>
-            <select id="assign-api-model" onchange="filterApiPrompts()" required>
-              <option value="">Select model...</option>
-            </select>
-          </div>
-          <div>
-            <label>Category <span style="color: red;">*</span></label>
-            <select id="assign-api-category" onchange="filterApiPrompts()" required>
-              <option value="">Select category...</option>
-            </select>
-          </div>
-          <div>
-            <label>Prompt ID <span style="color: red;">*</span></label>
-            <select id="assign-api-prompt-id" required>
-              <option value="">Select prompt...</option>
-            </select>
-          </div>
-          <div>
-            <label>Target Turns <span style="color: red;">*</span></label>
-            <input type="number" id="assign-api-turns" min="1" placeholder="e.g., 10" required />
-          </div>
-        </div>
-        <div style="margin-top: 15px;">
-          <label>Instructions/Notes</label>
-          <textarea id="assign-api-notes" placeholder="Any specific instructions..." style="height: 60px;"></textarea>
-        </div>
-        <div style="margin-top: 15px;">
-          <button onclick="saveAssignment('api')" style="background: #fd7e14; color: white; border-color: #fd7e14;">Create Assignment</button>
-          <button onclick="cancelAssignmentForm('api')" style="margin-left: 10px;">Cancel</button>
-        </div>
-      </div>
-
-      <div style="max-height: 600px; overflow-y: auto; border: 1px solid #ddd; border-radius: 5px;">
-        <table id="api-table">
-          <thead style="position: sticky; top: 0; background: #f8f9fa; z-index: 1;">
-            <tr>
-              <th style="width: 10%;">Assigned</th>
-              <th style="width: 8%;">RA</th>
-              <th style="width: 12%;">API Model</th>
-              <th style="width: 10%;">Category</th>
-              <th style="width: 10%;">Prompt ID</th>
-              <th style="width: 8%;">Target</th>
-              <th style="width: 10%;">Status</th>
-              <th style="width: 8%;">Actual</th>
-              <th style="width: 14%;">Notes</th>
-              <th style="width: 10%;">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="api-table-body">
-            <tr><td colspan="10" style="text-align: center; color: #666;">Loading...</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
 </div> <!-- End assignments tab -->
 
 <div id="intercoder-tab" class="tab-content">
   <div style="margin-bottom: 20px;">
-    <h3>Unified Regrading Interface</h3>
-    <p class="small">Regrade assistant responses from both Chat UI and API transcripts</p>
+    <h3>Regrading Interface (Second Grader)</h3>
+    <p class="small">Regrade assistant responses from both Chat UI and API transcripts.</p>
   </div>
 
   <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 20px;">
     <div>
-      <label>RA Pseudonym <span style="color: red;">*</span></label>
+      <label>RA Name <span style="color: red;">*</span></label>
       <input id="intercoder-ra" type="text" placeholder="eg. RA07" />
     </div>
     <div>
@@ -749,20 +753,20 @@
   </div>
 </div> <!-- End intercoder tab -->
 
-<!-- API Regrading Tab -->
-<div id="api-regrading-tab" class="tab-content">
+<!-- API Grading Tab -->
+<div id="api-grading-tab" class="tab-content">
   <div style="margin-bottom: 20px;">
-    <h3>API Transcript Grading</h3>
-    <p class="small">Grade assistant responses from API conversations</p>
+    <h3>API Grading (First Grader)</h3>
+    <p class="small">Grade NEW API transcript conversations. First grader annotates API-generated responses.</p>
   </div>
 
   <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px;">
     <div>
-      <label>RA Pseudonym</label>
+      <label>RA Name</label>
       <input id="api-ra" type="text" placeholder="eg. RA07" />
     </div>
     <div>
-      <label>Model</label>
+      <label>Evaluated Model</label>
       <select id="api-model" onchange="filterAPITranscripts()">
         <option value="">Select a model...</option>
       </select>
@@ -774,7 +778,7 @@
       </select>
     </div>
     <div>
-      <label>Prompt ID</label>
+      <label>Seed Prompt ID</label>
       <select id="api-prompt-id" onchange="filterAPITranscripts()">
         <option value="">Select a prompt...</option>
       </select>
@@ -855,7 +859,7 @@
       </div>
     </div>
   </div>
-</div> <!-- End API regrading tab -->
+</div> <!-- End API grading tab -->
 
 <!-- Comparison Tab -->
 <div id="comparison-tab" class="tab-content">
@@ -865,7 +869,7 @@
   <!-- Selection Filters -->
   <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 10px; background: #f9f9f9;">
     <div>
-      <label>Scenario Category</label>
+      <label>Category</label>
       <select id="comparison-category" onchange="filterComparisonScenarios()">
         <option value="">Select a category...</option>
       </select>
@@ -1072,7 +1076,7 @@ async function startSession() {
   const userModel = document.getElementById('userModel').value.trim();
   const evaluatedModel = document.getElementById('evaluatedModel').value;
   let scenario_id = SELECTED_SEED_PROMPT ? SELECTED_SEED_PROMPT.prompt_id : "manual_session";
-  if (!ra || !userModel || !evaluatedModel) { alert("Fill RA pseudonym, user model, and evaluated model"); return; }
+  if (!ra || !userModel || !evaluatedModel) { alert("Fill RA name, user model, and evaluated model"); return; }
 
   const r = await fetch(`${BASE}/api/session`, {
     method:"POST", headers:{"Content-Type":"application/json"},
@@ -1179,9 +1183,55 @@ function getAssistantTextForTurn(/*turnIndex*/) {
 function escapeHtmlLite(s){return s.replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[m]))}
 
 // --- Highlighting helpers (DOM-range based, no per-character spans) ---
-function normalizeEOL(s) {
-  // Normalize line endings - the JSON already has real newlines and Unicode chars
-  return (s || '').replace(/\r\n/g, '\n');
+// Fetch canonical text from server - this is the single source of truth
+async function getCanonicalTextChatUI(sessionId, turnIndex) {
+  const response = await fetch(`${BASE}/api/canonical_text/chat_ui?session_id=${encodeURIComponent(sessionId)}&turn_index=${turnIndex}`);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const data = await response.json();
+  return data.text;
+}
+
+async function getCanonicalTextAPI(model, category, promptId, runIndex, convoIndex, turnIndex) {
+  const response = await fetch(`${BASE}/api/canonical_text/api?model=${encodeURIComponent(model)}&category=${encodeURIComponent(category)}&prompt_id=${encodeURIComponent(promptId)}&run_index=${runIndex}&convo_index=${convoIndex}&turn_index=${turnIndex}`);
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const data = await response.json();
+  return data.text;
+}
+
+// Build a fast map between code points (server/Python) and code units (DOM/JS)
+// This is critical for handling emoji and other non-BMP characters correctly
+function buildCpCuIndex(str) {
+  // cpToCu[k] = code unit offset at the start of code point k
+  const cpToCu = [0];
+  let cu = 0;
+  for (const ch of str) { // for..of iterates by Unicode code point
+    cu += ch.length;      // ch.length is 1 or 2 code units
+    cpToCu.push(cu);
+  }
+  // Convert code unit offset -> code point index using binary search on cpToCu
+  function cuToCp(cuPos) {
+    // Find largest cp such that cpToCu[cp] <= cuPos
+    let lo = 0, hi = cpToCu.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (cpToCu[mid] <= cuPos) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  }
+  function clampCp(cp) {
+    return Math.max(0, Math.min(cp, cpToCu.length - 1));
+  }
+  function clampCu(cuPos) {
+    return Math.max(0, Math.min(cuPos, str.length));
+  }
+  return {
+    cpToCu,           // array
+    cuToCp,           // fn(cu) -> cp
+    cpLen: cpToCu.length - 1,
+    cuLen: str.length,
+    cpToCuAt(cp) { return cpToCu[clampCp(cp)]; },
+    cuToCpAt(cuPos) { return cuToCp(clampCu(cuPos)); }
+  };
 }
 
 // Map a linear [0..text.length] offset to a DOM Text node + local offset
@@ -1212,24 +1262,32 @@ function applyHighlights(viewer, text, incidents) {
     window.getSelection().removeAllRanges();
   }
 
-  const norm = normalizeEOL(text);
-  // Render as plain text; your CSS uses `white-space: pre-wrap` so newlines show.
-  viewer.textContent = norm;
+  // Text is already canonical from server - use as-is
+  viewer.textContent = text;
+  viewer._originalText = text;
 
-  const sorted = [...incidents].sort((a,b)=> a.start_char - b.start_char || a.end_char - b.end_char);
+  // Build and cache the code point/code unit index
+  viewer._cpIndex = buildCpCuIndex(text);
+  const map = viewer._cpIndex;
+
+  // Sort in descending order so earlier DOM mutations don't affect later ranges
+  const sorted = [...incidents].sort((a,b)=> b.start_char - a.start_char || b.end_char - a.end_char);
+
   for (const inc of sorted) {
-    const start = Math.max(0, Math.min(inc.start_char, norm.length));
-    const end   = Math.max(start, Math.min(inc.end_char, norm.length));
-    if (start === end) continue;
+    // Convert server CP indices -> DOM CU indices
+    const startCU = map.cpToCuAt(inc.start_char);
+    const endCU   = map.cpToCuAt(inc.end_char);
 
-    const range = rangeFromOffsets(viewer, start, end);
+    if (startCU === endCU) continue;
+
+    const range = rangeFromOffsets(viewer, startCU, endCU);
     if (!range) continue;
 
     const mark = document.createElement('mark');
     mark.className = `hl ${inc.label}`;
     mark.dataset.id = inc.id;
-    mark.dataset.start = String(start);
-    mark.dataset.end = String(end);
+    mark.dataset.start = String(inc.start_char); // keep server units in data- attrs
+    mark.dataset.end = String(inc.end_char);
     mark.title = `${inc.label} (s=${inc.strength})`;
 
     const frag = range.extractContents();
@@ -1250,49 +1308,64 @@ function getSelectionOffsetsWithin(el) {
     const preStart = document.createRange();
     preStart.setStart(el, 0);
     preStart.setEnd(range.startContainer, range.startOffset);
-    const start = preStart.toString().length;
+    const startCU = preStart.toString().length;
 
     const preEnd = document.createRange();
     preEnd.setStart(el, 0);
     preEnd.setEnd(range.endContainer, range.endOffset);
-    const end = preEnd.toString().length;
+    const endCU = preEnd.toString().length;
 
-    const a = Math.min(start, end);
-    const b = Math.max(start, end);
-    const originalText = getOriginalTextFromViewer(el);
+    const aCU = Math.min(startCU, endCU);
+    const bCU = Math.max(startCU, endCU);
 
-    // Basic clamp
-    const clampedStart = Math.max(0, Math.min(a, originalText.length));
-    const clampedEnd = Math.max(clampedStart, Math.min(b, originalText.length));
+    // Get canonical text from viewer (already set by server)
+    const originalText = el._originalText || el.textContent || "";
+    if (!originalText) return null;
 
-    if (clampedStart < clampedEnd) {
-      return { start: clampedStart, end: clampedEnd, selectedText: originalText.slice(clampedStart, clampedEnd) };
+    // Use code-point map (server units) - build if not cached
+    const map = el._cpIndex || buildCpCuIndex(originalText);
+    el._cpIndex = map;
+
+    const aCP = map.cuToCpAt(aCU);
+    const bCP = map.cuToCpAt(bCU);
+
+    // Simple validation using code points
+    if (aCP < bCP && bCP <= map.cpLen) {
+      return {
+        // what to show to the user (fine to be CU)
+        selectedText: originalText.slice(aCU, bCU),
+        startCU: aCU, endCU: bCU,
+        // what to send to the server (code points)
+        startCP: aCP, endCP: bCP
+      };
     }
 
-    // --- fallback mapping: try to locate the snippet inside canonical text ---
+    // === fallback path (exact/normalized find) still returns CP indices ===
     const snippet = range.toString();
     if (!snippet) return null;
 
-    // try exact search first
-    const occurrences = [];
-    let idx = originalText.indexOf(snippet);
-    while (idx !== -1) {
-      occurrences.push(idx);
-      idx = originalText.indexOf(snippet, idx + 1);
-    }
-    if (occurrences.length > 0) {
-      // pick occurrence closest to DOM-based start
-      const best = occurrences.reduce((bestIdx, cur) => {
-        if (bestIdx === null) return cur;
-        return Math.abs(cur - a) < Math.abs(bestIdx - a) ? cur : bestIdx;
-      }, null);
-      return { start: best, end: best + snippet.length, selectedText: originalText.slice(best, best + snippet.length) };
+    // try exact search first (returns CU index)
+    const idxCU = originalText.indexOf(snippet);
+    if (idxCU !== -1) {
+      const startCP = map.cuToCpAt(idxCU);
+      const endCP = map.cuToCpAt(idxCU + snippet.length);
+      return {
+        selectedText: snippet,
+        startCU: idxCU, endCU: idxCU + snippet.length,
+        startCP, endCP
+      };
     }
 
-    // Next: normalized whitespace search (collapses runs of whitespace)
+    // whitespace-normalized search -> find CU, then map CU->CP
     const normalizedIndex = normalizedIndexOf(originalText, snippet);
     if (normalizedIndex !== -1) {
-      return { start: normalizedIndex, end: normalizedIndex + snippet.length, selectedText: originalText.slice(normalizedIndex, normalizedIndex + snippet.length) };
+      const startCP = map.cuToCpAt(normalizedIndex);
+      const endCP = map.cuToCpAt(normalizedIndex + snippet.length);
+      return {
+        selectedText: originalText.slice(normalizedIndex, normalizedIndex + snippet.length),
+        startCU: normalizedIndex, endCU: normalizedIndex + snippet.length,
+        startCP, endCP
+      };
     }
 
     // If no mapping found: return null
@@ -1338,18 +1411,15 @@ function normalizedIndexOf(haystack, needle) {
   return normHayChars[idx] || 0;
 }
 
-function getOriginalTextFromViewer(el) {
-  return normalizeEOL(el._originalText || el.textContent || "");
-}
-
 async function loadIncidents() {
   if (!SID) return;
   const turn = FLOW.loggedForTurn ?? getTurnIndex();
   const r = await fetch(`${BASE}/api/incidents?session_id=${encodeURIComponent(SID)}&turn_index=${turn}`);
   if (!r.ok) return;
   const { incidents } = await r.json();
-  const raw = getAssistantTextForTurn(turn);
-  const text = normalizeEOL(raw);
+
+  // Fetch canonical text from server
+  const text = await getCanonicalTextChatUI(SID, turn);
   const viewer = document.getElementById('assistantViewer');
 
   viewer._originalText = text;
@@ -1393,7 +1463,7 @@ function handleSelectionChangeCore() {
   clearSelectionPreview(viewer);
 
   const selection = getSelectionOffsetsWithin(viewer);
-  if (!selection || selection.start === selection.end) {
+  if (!selection || selection.startCP === selection.endCP) {
     selectionInfo.style.display = 'none';
     updateAddHighlightButton();
     return;
@@ -1401,8 +1471,8 @@ function handleSelectionChangeCore() {
 
   selectionInfo.style.display = 'block';
   selectionText.textContent = selection.selectedText;
-  selectionRange.textContent = `Characters ${selection.start}-${selection.end}`;
-  selectionLength.textContent = selection.selectedText.length;
+  selectionRange.textContent = `Characters ${selection.startCP}-${selection.endCP}`;
+  selectionLength.textContent = (selection.endCP - selection.startCP);
 
   // Selection preview is handled by browser's native selection UI
   updateAddHighlightButton();
@@ -1438,7 +1508,7 @@ async function addSpanIncident() {
   const turn = FLOW.loggedForTurn ?? getTurnIndex();
   const viewer = document.getElementById('assistantViewer');
   const sel = getSelectionOffsetsWithin(viewer);
-  if (!sel || sel.start === sel.end) return alert("Select text in the viewer first.");
+  if (!sel || sel.startCP === sel.endCP) return alert("Select text in the viewer first.");
 
   const selectedLabelBtn = document.querySelector('.label-btn.selected');
   const selectedStrengthBtn = document.querySelector('.strength-btn.selected');
@@ -1449,41 +1519,16 @@ async function addSpanIncident() {
   const label = selectedLabelBtn.getAttribute('data-label');
   const strength = +selectedStrengthBtn.getAttribute('data-strength');
 
-  // Compare client canonical text to server's version for this turn
-  try {
-    const transcriptResp = await fetch(`${BASE}/api/session/${encodeURIComponent(SID)}/transcript`);
-    if (!transcriptResp.ok) {
-      console.warn('Could not fetch server transcript for verification.');
-    } else {
-      const transcriptData = await transcriptResp.json();
-      const serverTurn = (transcriptData.transcript || []).find(t => t.turn_index === turn && t.role === 'assistant');
-      if (serverTurn && typeof serverTurn.content === 'string') {
-        const serverText = normalizeEOL(serverTurn.content);
-        const clientText = getOriginalTextFromViewer(viewer);
-        if (serverText.length !== clientText.length || serverText !== clientText) {
-          // Helpful diagnostic for debugging
-          alert(`Text mismatch with server for turn ${turn}.\nServer length=${serverText.length}, client length=${clientText.length}.\nAborting add to avoid invalid offsets. Check that the logged turn content matches the viewer content.`);
-          console.error('Mismatch server vs client text for turn', {
-            serverSample: serverText.slice(0,200),
-            clientSample: clientText.slice(0,200),
-            serverLength: serverText.length,
-            clientLength: clientText.length
-          });
-          return;
-        }
-      } else {
-        console.warn('Server transcript did not have matching assistant turn; continuing with local text length checks.');
-      }
-    }
-  } catch (e) {
-    console.warn('Error fetching server transcript for verification:', e);
+  // Get text from viewer (already canonical from server)
+  const text = viewer._originalText || viewer.textContent;
+  if (!text) {
+    alert("No text available in viewer");
+    return;
   }
 
-  // All good: clamp to client canonical length and POST
-  const rawText = getOriginalTextFromViewer(viewer);
-  const max = rawText.length;
-  let start = Math.max(0, Math.min(sel.start, max));
-  let end   = Math.max(start, Math.min(sel.end,   max));
+  // Use code point offsets for server (Python uses code points, not code units)
+  const start = sel.startCP;
+  const end = sel.endCP;
 
   const r = await fetch(`${BASE}/api/incidents`, {
     method: "POST", headers:{"Content-Type":"application/json"},
@@ -1740,7 +1785,7 @@ function switchTab(tabName, btnEl) {
     refreshIntercoderSessions();
   }
 
-  if (tabName === 'api-regrading') {
+  if (tabName === 'api-grading') {
     refreshAPITranscripts();
   }
 
@@ -2034,7 +2079,7 @@ async function saveAssignment(taskType) {
   // Map UI task type to database task_type
   const dbTaskType = taskType === 'conversation' ? 'conversation' :
                      taskType === 'intercoder' ? 'intercoder_regrading' :
-                     'api_regrading';
+                     'api_grading';
 
   let assignmentData = { task_type: dbTaskType };
 
@@ -2175,7 +2220,7 @@ async function refreshAssignments(taskType) {
     // Map task_type to API parameter
     const apiTaskType = taskType === 'conversation' ? 'conversation' :
                         taskType === 'intercoder' ? 'intercoder_regrading' :
-                        'api_regrading';
+                        'api_grading';
 
     const response = await fetch(`${BASE}/api/task_assignments?task_type=${apiTaskType}`);
 
@@ -2634,7 +2679,7 @@ async function loadIntercoderTranscript() {
 
   // Validate all fields are selected
   if (!raPseudonym) {
-    alert('Please enter RA Pseudonym');
+    alert('Please enter RA Name');
     return;
   }
 
@@ -2768,7 +2813,7 @@ function setupIntercoderAnnotationButtons() {
   viewer.addEventListener('touchend', handleIntercoderSelectionChange);
 }
 
-function displayIntercoderTurn() {
+async function displayIntercoderTurn() {
   const pair = INTERCODER_STATE.assistantTurns[INTERCODER_STATE.currentIndex];
   if (!pair) return;
 
@@ -2780,9 +2825,22 @@ function displayIntercoderTurn() {
   // Display user content
   document.getElementById('intercoder-user-content').textContent = pair.userContent;
 
-  // Store original text for the assistant viewer
+  // Fetch canonical text from server based on interface
+  let text;
+  if (INTERCODER_STATE.interface === 'chat_ui') {
+    text = await getCanonicalTextChatUI(INTERCODER_STATE.sessionId, pair.assistantTurn);
+  } else if (INTERCODER_STATE.interface === 'api') {
+    text = await getCanonicalTextAPI(
+      INTERCODER_STATE.model,
+      INTERCODER_STATE.category,
+      INTERCODER_STATE.promptId,
+      INTERCODER_STATE.runIndex,
+      INTERCODER_STATE.convoIndex,
+      pair.assistantTurn
+    );
+  }
+
   const viewer = document.getElementById('intercoder-assistant-viewer');
-  const text = normalizeEOL(pair.assistantContent);
   viewer._originalText = text;
   viewer.textContent = text; // Initial display, will be replaced with highlights
 
@@ -2790,7 +2848,7 @@ function displayIntercoderTurn() {
   resetIntercoderSelection();
 
   // Load highlights (will apply visual marks)
-  loadIntercoderHighlights();
+  await loadIntercoderHighlights();
 
   // Clear completion status and re-enable button
   document.getElementById('intercoder-turn-status').textContent = '';
@@ -2807,7 +2865,22 @@ async function completeIntercoderTurn() {
 
   try {
     // Check if there are any annotations for this turn (optional - just for feedback)
-    const response = await fetch(`${BASE}/api/second_human_scores?session_id=${encodeURIComponent(INTERCODER_STATE.sessionId)}&turn_index=${pair.assistantTurn}`);
+    let url;
+    if (INTERCODER_STATE.interface === 'chat_ui') {
+      url = `${BASE}/api/second_human_scores?session_id=${encodeURIComponent(INTERCODER_STATE.sessionId)}&turn_index=${pair.assistantTurn}`;
+    } else if (INTERCODER_STATE.interface === 'api') {
+      const params = new URLSearchParams({
+        model: INTERCODER_STATE.model,
+        category: INTERCODER_STATE.category,
+        prompt_id: INTERCODER_STATE.promptId,
+        run_index: INTERCODER_STATE.runIndex,
+        convo_index: INTERCODER_STATE.convoIndex,
+        turn_index: pair.assistantTurn
+      });
+      url = `${BASE}/api/second_api_human_scores?${params}`;
+    }
+
+    const response = await fetch(url);
     if (!response.ok) {
       statusSpan.textContent = '✗ Error checking annotations';
       statusSpan.style.color = '#dc3545';
@@ -2851,18 +2924,15 @@ function handleIntercoderSelectionChange() {
   const viewer = document.getElementById('intercoder-assistant-viewer');
   const sel = getSelectionOffsetsWithin(viewer);
 
-  if (!sel || sel.start === sel.end) {
+  if (!sel || sel.startCP === sel.endCP) {
     document.getElementById('intercoder-selection-info').style.display = 'none';
     updateIntercoderAddButton();
     return;
   }
 
-  const text = viewer.textContent;
-  const snippet = text.substring(sel.start, sel.end);
-
-  document.getElementById('intercoder-selection-text').textContent = snippet.length > 100 ? snippet.substring(0, 100) + '...' : snippet;
-  document.getElementById('intercoder-selection-range').textContent = `${sel.start}–${sel.end}`;
-  document.getElementById('intercoder-selection-length').textContent = sel.end - sel.start;
+  document.getElementById('intercoder-selection-text').textContent = sel.selectedText.length > 100 ? sel.selectedText.substring(0, 100) + '...' : sel.selectedText;
+  document.getElementById('intercoder-selection-range').textContent = `${sel.startCP}–${sel.endCP}`;
+  document.getElementById('intercoder-selection-length').textContent = (sel.endCP - sel.startCP);
   document.getElementById('intercoder-selection-info').style.display = 'block';
 
   updateIntercoderAddButton();
@@ -2890,7 +2960,7 @@ function resetIntercoderSelection() {
 async function addIntercoderHighlight() {
   const viewer = document.getElementById('intercoder-assistant-viewer');
   const sel = getSelectionOffsetsWithin(viewer);
-  if (!sel || sel.start === sel.end) {
+  if (!sel || sel.startCP === sel.endCP) {
     alert("Select text in the viewer first.");
     return;
   }
@@ -2907,42 +2977,22 @@ async function addIntercoderHighlight() {
   const strength = +selectedStrengthBtn.getAttribute('data-strength');
   const pair = INTERCODER_STATE.assistantTurns[INTERCODER_STATE.currentIndex];
 
-  // For Chat UI interface, verify client text matches server text
-  if (INTERCODER_STATE.interface === 'chat_ui') {
-    try {
-      const transcriptResp = await fetch(`${BASE}/api/session/${encodeURIComponent(INTERCODER_STATE.sessionId)}/transcript`);
-      if (transcriptResp.ok) {
-        const transcriptData = await transcriptResp.json();
-        const serverTurn = (transcriptData.transcript || []).find(t => t.turn_index === pair.assistantTurn && t.role === 'assistant');
-        if (serverTurn && typeof serverTurn.content === 'string') {
-          const serverText = normalizeEOL(serverTurn.content);
-          const clientText = normalizeEOL(viewer._originalText || viewer.textContent || "");
-          if (serverText.length !== clientText.length || serverText !== clientText) {
-            alert(`Text mismatch with server for turn ${pair.assistantTurn}.\nServer length=${serverText.length}, client length=${clientText.length}.\nAborting add to avoid invalid offsets.`);
-            console.error('Intercoder mismatch server vs client text', {
-              serverLength: serverText.length,
-              clientLength: clientText.length
-            });
-            return;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Error fetching server transcript for verification:', e);
-    }
+  // Get text from viewer (already canonical from server)
+  const text = viewer._originalText || viewer.textContent;
+  if (!text) {
+    alert("No text available in viewer");
+    return;
   }
 
-  // Clamp to canonical text length (additional safety check)
-  const rawText = viewer._originalText || viewer.textContent || "";
-  const max = rawText.length;
-  let start = Math.max(0, Math.min(sel.start, max));
-  let end   = Math.max(start, Math.min(sel.end,   max));
+  // Use code point offsets for server (Python uses code points, not code units)
+  const start = sel.startCP;
+  const end = sel.endCP;
 
   try {
     let endpoint, payload;
 
     if (INTERCODER_STATE.interface === 'chat_ui') {
-      // Use second_human_scores endpoint for chat UI
+      // Use second_human_scores endpoint for chat UI regrades
       endpoint = `${BASE}/api/second_human_scores`;
       payload = {
         session_id: INTERCODER_STATE.sessionId,
@@ -2954,8 +3004,8 @@ async function addIntercoderHighlight() {
         end_char: end
       };
     } else if (INTERCODER_STATE.interface === 'api') {
-      // Use api_human_scores endpoint for API transcripts
-      endpoint = `${BASE}/api/api_human_scores`;
+      // Use second_api_human_scores endpoint for API transcript regrades
+      endpoint = `${BASE}/api/second_api_human_scores`;
       payload = {
         model: INTERCODER_STATE.model,
         category: INTERCODER_STATE.category,
@@ -3009,7 +3059,7 @@ async function loadIntercoderHighlights() {
         convo_index: INTERCODER_STATE.convoIndex,
         turn_index: pair.assistantTurn
       });
-      url = `${BASE}/api/api_human_scores?${params}`;
+      url = `${BASE}/api/second_api_human_scores?${params}`;
     }
 
     const response = await fetch(url);
@@ -3018,8 +3068,22 @@ async function loadIntercoderHighlights() {
     const data = await response.json();
     const incidents = data.scores || [];
 
+    // Fetch canonical text from server based on interface
+    let text;
+    if (INTERCODER_STATE.interface === 'chat_ui') {
+      text = await getCanonicalTextChatUI(INTERCODER_STATE.sessionId, pair.assistantTurn);
+    } else if (INTERCODER_STATE.interface === 'api') {
+      text = await getCanonicalTextAPI(
+        INTERCODER_STATE.model,
+        INTERCODER_STATE.category,
+        INTERCODER_STATE.promptId,
+        INTERCODER_STATE.runIndex,
+        INTERCODER_STATE.convoIndex,
+        pair.assistantTurn
+      );
+    }
+
     const viewer = document.getElementById('intercoder-assistant-viewer');
-    const text = normalizeEOL(pair.assistantContent);
     viewer._originalText = text;
     applyHighlights(viewer, text, incidents);
 
@@ -3041,7 +3105,7 @@ async function deleteIntercoderHighlight(id) {
     if (INTERCODER_STATE.interface === 'chat_ui') {
       endpoint = `${BASE}/api/second_human_scores/${id}`;
     } else if (INTERCODER_STATE.interface === 'api') {
-      endpoint = `${BASE}/api/api_human_scores/${id}`;
+      endpoint = `${BASE}/api/second_api_human_scores/${id}`;
     }
 
     const response = await fetch(endpoint, {
@@ -3061,7 +3125,7 @@ async function deleteIntercoderHighlight(id) {
   }
 }
 
-// ==================== API Regrading Functions ====================
+// ==================== API Grading Functions ====================
 
 const API_STATE = {
   allTranscripts: [],
@@ -3161,12 +3225,12 @@ async function loadAPITranscript() {
   const promptId = document.getElementById('api-prompt-id').value;
 
   if (!ra) {
-    alert('Please enter RA pseudonym');
+    alert('Please enter RA name');
     return;
   }
 
   if (!model || !category || !promptId) {
-    alert('Please select model, category, and prompt ID');
+    alert('Please select model, category, and seed prompt ID');
     return;
   }
 
@@ -3230,7 +3294,7 @@ function setupAPIAnnotationButtons() {
   viewer.addEventListener('touchend', handleAPISelectionChange);
 }
 
-function displayAPITurn() {
+async function displayAPITurn() {
   if (!API_STATE.currentTranscript) return;
 
   // Get assistant turns only
@@ -3243,7 +3307,6 @@ function displayAPITurn() {
     return;
   }
 
-  const assistantTurn = assistantTurns[API_STATE.currentTurnIndex];
   const userTurn = userTurns[API_STATE.currentTurnIndex] || { content: '' };
 
   // Update turn info
@@ -3254,9 +3317,17 @@ function displayAPITurn() {
   // Display user content
   document.getElementById('api-user-content').textContent = userTurn.content;
 
-  // Store original text for the assistant viewer
+  // Fetch canonical text from server
+  const text = await getCanonicalTextAPI(
+    API_STATE.selectedModel,
+    API_STATE.selectedCategory,
+    API_STATE.selectedPromptId,
+    API_STATE.selectedRunIndex,
+    API_STATE.selectedConvoIndex,
+    API_STATE.currentTurnIndex
+  );
+
   const viewer = document.getElementById('api-assistant-viewer');
-  const text = normalizeEOL(assistantTurn.content);
   viewer._originalText = text;
   viewer.textContent = text; // Initial display, will be replaced with highlights
 
@@ -3264,25 +3335,22 @@ function displayAPITurn() {
   resetAPISelection();
 
   // Load highlights (will apply visual marks)
-  loadAPIHighlights();
+  await loadAPIHighlights();
 }
 
 function handleAPISelectionChange() {
   const viewer = document.getElementById('api-assistant-viewer');
   const sel = getSelectionOffsetsWithin(viewer);
 
-  if (!sel || sel.start === sel.end) {
+  if (!sel || sel.startCP === sel.endCP) {
     document.getElementById('api-selection-info').style.display = 'none';
     updateAPIAddButton();
     return;
   }
 
-  const text = viewer.textContent;
-  const snippet = text.substring(sel.start, sel.end);
-
-  document.getElementById('api-selection-text').textContent = snippet.length > 100 ? snippet.substring(0, 100) + '...' : snippet;
-  document.getElementById('api-selection-range').textContent = `${sel.start}–${sel.end}`;
-  document.getElementById('api-selection-length').textContent = sel.end - sel.start;
+  document.getElementById('api-selection-text').textContent = sel.selectedText.length > 100 ? sel.selectedText.substring(0, 100) + '...' : sel.selectedText;
+  document.getElementById('api-selection-range').textContent = `${sel.startCP}–${sel.endCP}`;
+  document.getElementById('api-selection-length').textContent = (sel.endCP - sel.startCP);
   document.getElementById('api-selection-info').style.display = 'block';
 
   updateAPIAddButton();
@@ -3310,7 +3378,7 @@ function resetAPISelection() {
 async function addAPIHighlight() {
   const viewer = document.getElementById('api-assistant-viewer');
   const sel = getSelectionOffsetsWithin(viewer);
-  if (!sel || sel.start === sel.end) {
+  if (!sel || sel.startCP === sel.endCP) {
     alert("Select text in the viewer first.");
     return;
   }
@@ -3326,11 +3394,16 @@ async function addAPIHighlight() {
   const label = selectedLabelBtn.getAttribute('data-label');
   const strength = +selectedStrengthBtn.getAttribute('data-strength');
 
-  // Clamp to canonical text length (additional safety check)
-  const rawText = viewer._originalText || viewer.textContent || "";
-  const max = rawText.length;
-  let start = Math.max(0, Math.min(sel.start, max));
-  let end   = Math.max(start, Math.min(sel.end,   max));
+  // Get text from viewer (already canonical from server)
+  const text = viewer._originalText || viewer.textContent;
+  if (!text) {
+    alert("No text available in viewer");
+    return;
+  }
+
+  // Use code point offsets for server (Python uses code points, not code units)
+  const start = sel.startCP;
+  const end = sel.endCP;
 
   try {
     const response = await fetch(`${BASE}/api/api_human_scores`, {
@@ -3371,8 +3444,18 @@ async function loadAPIHighlights() {
     const data = await response.json();
     const incidents = data.scores || [];
 
+    // Fetch canonical text from server
+    const text = await getCanonicalTextAPI(
+      API_STATE.selectedModel,
+      API_STATE.selectedCategory,
+      API_STATE.selectedPromptId,
+      API_STATE.selectedRunIndex,
+      API_STATE.selectedConvoIndex,
+      API_STATE.currentTurnIndex
+    );
+
     const viewer = document.getElementById('api-assistant-viewer');
-    const text = viewer._originalText || '';
+    viewer._originalText = text;
 
     // Apply visual highlights to the viewer
     applyHighlights(viewer, text, incidents);

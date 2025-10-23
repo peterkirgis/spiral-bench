@@ -117,7 +117,7 @@ def init_db():
             """)
             cur.execute("""CREATE INDEX IF NOT EXISTS second_human_scores_idx ON second_human_scores(session_id, turn_index)""")
 
-            # API human scores for regrading API conversations
+            # API human scores for grading API conversations
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS api_human_scores(
                     id SERIAL PRIMARY KEY,
@@ -139,11 +139,33 @@ def init_db():
             """)
             cur.execute("""CREATE INDEX IF NOT EXISTS api_human_scores_idx ON api_human_scores(model, category, prompt_id, run_index, convo_index, turn_index)""")
 
+            # Second API human scores (for regrading API transcripts)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS second_api_human_scores(
+                    id SERIAL PRIMARY KEY,
+                    model TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    prompt_id TEXT NOT NULL,
+                    run_index INTEGER NOT NULL,
+                    convo_index INTEGER NOT NULL,
+                    turn_index INTEGER NOT NULL,
+                    ra_pseudonym TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    strength INTEGER NOT NULL CHECK (strength BETWEEN 1 AND 3),
+                    start_char INTEGER NOT NULL,
+                    end_char INTEGER NOT NULL,
+                    snippet TEXT NOT NULL,
+                    content_sha256 TEXT NOT NULL,
+                    created_at DOUBLE PRECISION
+                )
+            """)
+            cur.execute("""CREATE INDEX IF NOT EXISTS second_api_human_scores_idx ON second_api_human_scores(model, category, prompt_id, run_index, convo_index, turn_index)""")
+
             # Task assignments for RAs
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS task_assignments(
                     id SERIAL PRIMARY KEY,
-                    task_type TEXT CHECK (task_type IN ('conversation', 'intercoder_regrading', 'api_regrading')) DEFAULT 'conversation',
+                    task_type TEXT CHECK (task_type IN ('conversation', 'intercoder_regrading', 'api_grading')) DEFAULT 'conversation',
                     ra_pseudonym TEXT NOT NULL,
                     seed_prompt_id TEXT,
                     seed_prompt_text TEXT,
@@ -170,7 +192,7 @@ def init_db():
                 BEGIN
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                                  WHERE table_name='task_assignments' AND column_name='task_type') THEN
-                        ALTER TABLE task_assignments ADD COLUMN task_type TEXT CHECK (task_type IN ('conversation', 'intercoder_regrading', 'api_regrading')) DEFAULT 'conversation';
+                        ALTER TABLE task_assignments ADD COLUMN task_type TEXT CHECK (task_type IN ('conversation', 'intercoder_regrading', 'api_grading')) DEFAULT 'conversation';
                     END IF;
                     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                                  WHERE table_name='task_assignments' AND column_name='api_model') THEN
@@ -522,11 +544,9 @@ def create_incident(inc: SpanIncident):
                 (inc.session_id, inc.turn_index), fetch=True, one=True)
     if not row:
         raise HTTPException(404, "Assistant turn not found")
-    text = row["content"] or ""
-    # Normalize line endings to match client-side processing
-    text = text.replace('\r\n', '\n')
+    text = normalize_text(row["content"] or "")
     if not (0 <= inc.start_char < inc.end_char <= len(text)):
-        raise HTTPException(400, "Invalid span offsets")
+        raise HTTPException(400, f"Invalid span offsets: start={inc.start_char}, end={inc.end_char}, text_length={len(text)}")
     snippet = text[inc.start_char:inc.end_char]
     query("""INSERT INTO human_scores(session_id,turn_index,label,strength,
              start_char,end_char,snippet,content_sha256,created_at)
@@ -590,11 +610,9 @@ def create_second_human_score(score: SecondHumanScore):
                 (score.session_id, score.turn_index), fetch=True, one=True)
     if not row:
         raise HTTPException(404, "Assistant turn not found")
-    text = row["content"] or ""
-    # Normalize line endings to match client-side processing
-    text = text.replace('\r\n', '\n')
+    text = normalize_text(row["content"] or "")
     if not (0 <= score.start_char < score.end_char <= len(text)):
-        raise HTTPException(400, "Invalid span offsets")
+        raise HTTPException(400, f"Invalid span offsets: start={score.start_char}, end={score.end_char}, text_length={len(text)}")
     snippet = text[score.start_char:score.end_char]
     query("""INSERT INTO second_human_scores(session_id,ra_pseudonym,turn_index,label,strength,
              start_char,end_char,snippet,content_sha256,created_at)
@@ -608,7 +626,7 @@ def delete_second_human_score(score_id: int):
     query("DELETE FROM second_human_scores WHERE id=%s", (score_id,))
     return {"ok": True}
 
-# ────────────────────────────── API Human Scores (API Transcript Regrading) ───────────────────────────
+# ────────────────────────────── API Human Scores (Original API Grading) ───────────────────────────
 
 class APIHumanScore(BaseModel):
     model: str
@@ -723,25 +741,19 @@ def create_api_human_score(score: APIHumanScore):
             raise HTTPException(404, "Turn index out of range")
 
         assistant_turn = assistant_turns[score.turn_index]
-        text = assistant_turn.get("content", "")
-        # Normalize line endings to match client-side processing
-        text = text.replace('\r\n', '\n')
+        text = normalize_text(assistant_turn.get("content", ""))
 
-        # Clamp offsets to valid range (allows for minor discrepancies in length calculation)
-        start_char = max(0, min(score.start_char, len(text)))
-        end_char = max(start_char, min(score.end_char, len(text)))
+        if not (0 <= score.start_char < score.end_char <= len(text)):
+            raise HTTPException(400, f"Invalid span offsets: start={score.start_char}, end={score.end_char}, text_length={len(text)}")
 
-        if start_char >= end_char:
-            raise HTTPException(400, f"Invalid span offsets after clamping: start={score.start_char}, end={score.end_char}, text_length={len(text)}, clamped to: start={start_char}, end={end_char}")
-
-        snippet = text[start_char:end_char]
+        snippet = text[score.start_char:score.end_char]
         content_hash = sha256_text(text)
 
         query("""INSERT INTO api_human_scores(model,category,prompt_id,run_index,convo_index,turn_index,ra_pseudonym,label,strength,
                  start_char,end_char,snippet,content_sha256,created_at)
                  VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
               (score.model, score.category, score.prompt_id, score.run_index, score.convo_index, score.turn_index,
-               score.ra_pseudonym, score.label, score.strength, start_char, end_char, snippet, content_hash, time.time()))
+               score.ra_pseudonym, score.label, score.strength, score.start_char, score.end_char, snippet, content_hash, time.time()))
         return {"ok": True}
     except HTTPException:
         raise
@@ -752,6 +764,121 @@ def create_api_human_score(score: APIHumanScore):
 def delete_api_human_score(score_id: int):
     query("DELETE FROM api_human_scores WHERE id=%s", (score_id,))
     return {"ok": True}
+
+# ────────────────────────────── Second API Human Scores (API Transcript Regrading) ───────────────────────────
+
+class SecondAPIHumanScore(BaseModel):
+    model: str
+    category: str
+    prompt_id: str
+    run_index: int
+    convo_index: int
+    turn_index: int
+    ra_pseudonym: str
+    label: str
+    strength: int
+    start_char: int
+    end_char: int
+    content_sha256: str
+
+@app.get("/api/second_api_human_scores")
+def list_second_api_human_scores(model: str, category: str, prompt_id: str, run_index: int, convo_index: int, turn_index: int):
+    rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at
+                    FROM second_api_human_scores
+                    WHERE model=%s AND category=%s AND prompt_id=%s
+                    AND run_index=%s AND convo_index=%s AND turn_index=%s
+                    ORDER BY start_char ASC, end_char ASC""",
+                 (model, category, prompt_id, run_index, convo_index, turn_index), fetch=True)
+    return {"scores": rows}
+
+@app.post("/api/second_api_human_scores")
+def create_second_api_human_score(score: SecondAPIHumanScore):
+    if score.label not in LABELS:
+        raise HTTPException(400, f"Unknown label '{score.label}'")
+
+    # Load the transcript to validate and extract snippet
+    try:
+        transcript_data = get_api_transcript(score.model, score.category, score.prompt_id, score.run_index, score.convo_index)
+        transcript = transcript_data["transcript"]
+
+        # Find the assistant turn (same logic as api_human_scores)
+        assistant_turns = [t for t in transcript if t.get("role") == "assistant"]
+        if score.turn_index >= len(assistant_turns):
+            raise HTTPException(404, "Turn index out of range")
+
+        assistant_turn = assistant_turns[score.turn_index]
+        text = normalize_text(assistant_turn.get("content", ""))
+
+        if not (0 <= score.start_char < score.end_char <= len(text)):
+            raise HTTPException(400, f"Invalid span offsets: start={score.start_char}, end={score.end_char}, text_length={len(text)}")
+
+        snippet = text[score.start_char:score.end_char]
+        content_hash = sha256_text(text)
+
+        query("""INSERT INTO second_api_human_scores(model,category,prompt_id,run_index,convo_index,turn_index,ra_pseudonym,label,strength,
+                 start_char,end_char,snippet,content_sha256,created_at)
+                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+              (score.model, score.category, score.prompt_id, score.run_index, score.convo_index, score.turn_index,
+               score.ra_pseudonym, score.label, score.strength, score.start_char, score.end_char, snippet, content_hash, time.time()))
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Error creating second API score: {str(e)}")
+
+@app.delete("/api/second_api_human_scores/{score_id}")
+def delete_second_api_human_score(score_id: int):
+    query("DELETE FROM second_api_human_scores WHERE id=%s", (score_id,))
+    return {"ok": True}
+
+# ────────────────────────────── Canonical Text Endpoints ───────────────────────────
+
+def normalize_text(text: str) -> str:
+    """Canonical text normalization used everywhere"""
+    if not text:
+        return ""
+    # Only normalize line endings - nothing else
+    return text.replace('\r\n', '\n').replace('\r', '\n')
+
+@app.get("/api/canonical_text/chat_ui")
+def get_canonical_text_chat_ui(session_id: str, turn_index: int):
+    """Get the exact canonical text for a Chat UI assistant turn"""
+    row = query("""SELECT content FROM turns
+                   WHERE session_id=%s AND turn_index=%s AND role='assistant'
+                   ORDER BY created_at DESC LIMIT 1""",
+                (session_id, turn_index), fetch=True, one=True)
+    if not row:
+        raise HTTPException(404, "Assistant turn not found")
+
+    canonical = normalize_text(row["content"] or "")
+    return {
+        "text": canonical,
+        "length": len(canonical)
+    }
+
+@app.get("/api/canonical_text/api")
+def get_canonical_text_api(model: str, category: str, prompt_id: str, run_index: int, convo_index: int, turn_index: int):
+    """Get the exact canonical text for an API assistant turn"""
+    try:
+        transcript_data = get_api_transcript(model, category, prompt_id, run_index, convo_index)
+        transcript = transcript_data["transcript"]
+
+        # Find the assistant turn by assistant-only index
+        assistant_turns = [t for t in transcript if t.get("role") == "assistant"]
+        if turn_index >= len(assistant_turns):
+            raise HTTPException(404, "Turn index out of range")
+
+        assistant_turn = assistant_turns[turn_index]
+        canonical = normalize_text(assistant_turn.get("content", ""))
+
+        return {
+            "text": canonical,
+            "length": len(canonical)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Error loading text: {str(e)}")
 
 # ────────────────────────────── Judge (LLM grader) ───────────────────────────
 

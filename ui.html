@@ -56,10 +56,14 @@
     mark.harmful_advice { outline: 2px solid #c00; }
     mark.sycophancy { outline: 2px solid #888; }
 
-    /* Comparison view - dual colored highlights */
-    mark.human-grade { background: rgba(100, 149, 237, 0.3); padding: 0 2px; border-radius: 3px; }
+    /* Comparison view - triple colored highlights */
+    mark.first-human-grade { background: rgba(100, 149, 237, 0.3); padding: 0 2px; border-radius: 3px; }
+    mark.second-human-grade { background: rgba(46, 204, 113, 0.3); padding: 0 2px; border-radius: 3px; }
     mark.llm-grade { background: rgba(255, 140, 0, 0.3); padding: 0 2px; border-radius: 3px; }
-    mark.both-grade { background: rgba(147, 112, 219, 0.4); padding: 0 2px; border-radius: 3px; }
+    mark.first-second-grade { background: rgba(155, 89, 182, 0.4); padding: 0 2px; border-radius: 3px; }
+    mark.first-llm-grade { background: rgba(230, 126, 34, 0.4); padding: 0 2px; border-radius: 3px; }
+    mark.second-llm-grade { background: rgba(241, 196, 15, 0.4); padding: 0 2px; border-radius: 3px; }
+    mark.all-three-grade { background: rgba(231, 76, 60, 0.5); padding: 0 2px; border-radius: 3px; }
 
     /* Selection preview */
     .selection-info {
@@ -863,37 +867,54 @@
 
 <!-- Comparison Tab -->
 <div id="comparison-tab" class="tab-content">
-  <h3>Grade Comparison: Human vs LLM</h3>
-  <p class="small">Compare human grader annotations with LLM grader annotations side-by-side.</p>
+  <h3>Grade Comparison: All Graders</h3>
+  <p class="small">Compare first human, second human, and LLM grader annotations side-by-side.</p>
 
   <!-- Selection Filters -->
-  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 10px; background: #f9f9f9;">
+  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 10px; background: #f9f9f9;">
     <div>
-      <label>Category</label>
-      <select id="comparison-category" onchange="filterComparisonScenarios()">
-        <option value="">Select a category...</option>
+      <label>Interface <span style="color: red;">*</span></label>
+      <select id="comparison-interface" onchange="cascadeComparisonFilters()">
+        <option value="">Select interface...</option>
+        <option value="chat_ui">Chat UI</option>
+        <option value="api">API</option>
       </select>
     </div>
     <div>
-      <label>Scenario</label>
-      <select id="comparison-scenario" onchange="filterComparisonSessions()" disabled>
-        <option value="">Select a scenario...</option>
+      <label>Model <span style="color: red;">*</span></label>
+      <select id="comparison-model" onchange="cascadeComparisonFilters()" disabled>
+        <option value="">Select model...</option>
       </select>
     </div>
     <div>
-      <label>Session</label>
-      <select id="comparison-session" onchange="loadComparisonData()" disabled>
-        <option value="">Select a session...</option>
+      <label>Category <span style="color: red;">*</span></label>
+      <select id="comparison-category" onchange="cascadeComparisonFilters()" disabled>
+        <option value="">Select category...</option>
       </select>
     </div>
+    <div>
+      <label>Seed Prompt <span style="color: red;">*</span></label>
+      <select id="comparison-prompt" onchange="cascadeComparisonFilters()" disabled>
+        <option value="">Select prompt...</option>
+      </select>
+    </div>
+  </div>
+
+  <div style="margin-bottom: 20px;">
+    <button onclick="loadComparisonData()" id="comparison-load-btn" disabled style="background: #007bff; color: white; border-color: #007bff;">Load Conversation</button>
+    <span class="small" id="comparison-status"></span>
   </div>
 
   <!-- Legend -->
   <div id="comparison-legend" style="display: none; margin-bottom: 20px; padding: 12px; border: 1px solid #ddd; border-radius: 10px; background: #fff;">
     <strong>Highlight Legend:</strong>
-    <span style="margin-left: 15px;"><mark class="human-grade" style="padding: 2px 6px;">Human Only</mark></span>
-    <span style="margin-left: 10px;"><mark class="llm-grade" style="padding: 2px 6px;">LLM Only</mark></span>
-    <span style="margin-left: 10px;"><mark class="both-grade" style="padding: 2px 6px;">Both Graders</mark></span>
+    <span style="margin-left: 15px;"><mark class="first-human-grade" style="padding: 2px 6px;">First Human</mark></span>
+    <span style="margin-left: 10px;"><mark class="second-human-grade" style="padding: 2px 6px;">Second Human</mark></span>
+    <span style="margin-left: 10px;"><mark class="llm-grade" style="padding: 2px 6px;">LLM</mark></span>
+    <span style="margin-left: 10px;"><mark class="first-second-grade" style="padding: 2px 6px;">Both Humans</mark></span>
+    <span style="margin-left: 10px;"><mark class="first-llm-grade" style="padding: 2px 6px;">First + LLM</mark></span>
+    <span style="margin-left: 10px;"><mark class="second-llm-grade" style="padding: 2px 6px;">Second + LLM</mark></span>
+    <span style="margin-left: 10px;"><mark class="all-three-grade" style="padding: 2px 6px;">All Three</mark></span>
   </div>
 
   <!-- Conversation Display -->
@@ -3503,161 +3524,299 @@ async function completeAPITurn() {
 // Comparison Tab Functions
 // ========================================
 
-let COMPARISON_DATA = {
-  categories: [],
-  scenarios: [],
-  sessions: []
+let COMPARISON_STATE = {
+  allTranscripts: [],
+  selectedInterface: null,
+  selectedModel: null,
+  selectedCategory: null,
+  selectedPromptId: null,
+  selectedTranscript: null
 };
 
 async function initComparisonTab() {
   try {
-    // Load prompts/scenarios
-    const response = await fetch(`${BASE}/api/prompts`);
+    // Load unified transcripts (both chat UI and API)
+    const response = await fetch(`${BASE}/api/unified_transcripts`);
     if (!response.ok) {
-      console.error('Failed to fetch prompts');
+      console.error('Failed to fetch transcripts');
       return;
     }
     const data = await response.json();
-    COMPARISON_DATA.scenarios = data.prompts || [];
+    let allTranscripts = data.transcripts || [];
 
-    // Extract unique categories
-    const categories = [...new Set(COMPARISON_DATA.scenarios.map(p => p.category))];
-    COMPARISON_DATA.categories = categories.sort();
-
-    // Populate category dropdown
-    const categorySelect = document.getElementById('comparison-category');
-    categorySelect.innerHTML = '<option value="">Select a category...</option>';
-    COMPARISON_DATA.categories.forEach(cat => {
-      const option = document.createElement('option');
-      option.value = cat;
-      option.textContent = cat;
-      categorySelect.appendChild(option);
+    // Filter chat UI transcripts to only include valid session IDs
+    COMPARISON_STATE.allTranscripts = allTranscripts.filter(t => {
+      if (t.interface === 'chat_ui') {
+        return VALID_CHAT_SESSION_IDS.includes(t.session_id);
+      }
+      return true; // Keep all API transcripts
     });
+
+    document.getElementById('comparison-status').textContent = `Loaded ${COMPARISON_STATE.allTranscripts.length} transcripts`;
+
+    // Reset all dropdowns
+    resetComparisonDropdowns();
   } catch (error) {
     console.error('Error initializing comparison tab:', error);
+    document.getElementById('comparison-status').textContent = 'Error loading transcripts';
   }
 }
 
-function filterComparisonScenarios() {
-  const category = document.getElementById('comparison-category').value;
-  const scenarioSelect = document.getElementById('comparison-scenario');
-  const sessionSelect = document.getElementById('comparison-session');
+function resetComparisonDropdowns() {
+  // Reset interface dropdown
+  document.getElementById('comparison-interface').selectedIndex = 0;
 
-  // Reset downstream selections
-  scenarioSelect.innerHTML = '<option value="">Select a scenario...</option>';
-  scenarioSelect.disabled = !category;
-  sessionSelect.innerHTML = '<option value="">Select a session...</option>';
-  sessionSelect.disabled = true;
-  document.getElementById('comparison-conversation').style.display = 'none';
-  document.getElementById('comparison-legend').style.display = 'none';
+  // Reset and disable dependent dropdowns
+  const modelSelect = document.getElementById('comparison-model');
+  modelSelect.innerHTML = '<option value="">Select model...</option>';
+  modelSelect.disabled = true;
 
-  if (!category) return;
+  const categorySelect = document.getElementById('comparison-category');
+  categorySelect.innerHTML = '<option value="">Select category...</option>';
+  categorySelect.disabled = true;
 
-  // Filter scenarios by category
-  const filtered = COMPARISON_DATA.scenarios.filter(p => p.category === category);
-  filtered.forEach(scenario => {
-    const option = document.createElement('option');
-    option.value = scenario.prompt_id;
-    option.textContent = scenario.prompt_id;
-    scenarioSelect.appendChild(option);
-  });
+  const promptSelect = document.getElementById('comparison-prompt');
+  promptSelect.innerHTML = '<option value="">Select prompt...</option>';
+  promptSelect.disabled = true;
+
+  document.getElementById('comparison-load-btn').disabled = true;
+  COMPARISON_STATE.selectedTranscript = null;
 }
 
-async function filterComparisonSessions() {
-  const scenarioId = document.getElementById('comparison-scenario').value;
-  const sessionSelect = document.getElementById('comparison-session');
+function cascadeComparisonFilters() {
+  const interfaceValue = document.getElementById('comparison-interface').value;
+  const modelValue = document.getElementById('comparison-model').value;
+  const categoryValue = document.getElementById('comparison-category').value;
+  const promptValue = document.getElementById('comparison-prompt').value;
 
-  sessionSelect.innerHTML = '<option value="">Select a session...</option>';
-  sessionSelect.disabled = true;
+  // Hide conversation display when filters change
   document.getElementById('comparison-conversation').style.display = 'none';
   document.getElementById('comparison-legend').style.display = 'none';
 
-  if (!scenarioId) return;
+  // Step 1: Interface selected - populate models
+  if (interfaceValue && !modelValue) {
+    COMPARISON_STATE.selectedInterface = interfaceValue;
+    const filtered = COMPARISON_STATE.allTranscripts.filter(t => t.interface === interfaceValue);
+    const models = [...new Set(filtered.map(t => t.model))].sort();
 
-  try {
-    // Fetch sessions for this scenario
-    const response = await fetch(`${BASE}/api/sessions?scenario=${encodeURIComponent(scenarioId)}`);
-    if (!response.ok) {
-      console.error('Failed to fetch sessions');
-      return;
-    }
-
-    const data = await response.json();
-    const sessions = data.sessions || [];
-
-    if (sessions.length === 0) {
-      sessionSelect.innerHTML = '<option value="">No sessions found</option>';
-      return;
-    }
-
-    sessionSelect.disabled = false;
-    sessions.forEach(session => {
-      const option = document.createElement('option');
-      option.value = session.session_id;
-      option.textContent = `${session.session_id.substring(0, 8)}... - ${session.ra_pseudonym || 'N/A'}`;
-      sessionSelect.appendChild(option);
+    const modelSelect = document.getElementById('comparison-model');
+    modelSelect.innerHTML = '<option value="">Select model...</option>';
+    models.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      modelSelect.appendChild(opt);
     });
-  } catch (error) {
-    console.error('Error loading sessions:', error);
+    modelSelect.disabled = false;
+
+    // Reset dependent dropdowns
+    document.getElementById('comparison-category').innerHTML = '<option value="">Select category...</option>';
+    document.getElementById('comparison-category').disabled = true;
+    document.getElementById('comparison-prompt').innerHTML = '<option value="">Select prompt...</option>';
+    document.getElementById('comparison-prompt').disabled = true;
+    document.getElementById('comparison-load-btn').disabled = true;
+
+    return;
+  }
+
+  // Step 2: Model selected - populate categories
+  if (interfaceValue && modelValue && !categoryValue) {
+    COMPARISON_STATE.selectedModel = modelValue;
+    const filtered = COMPARISON_STATE.allTranscripts.filter(t =>
+      t.interface === interfaceValue && t.model === modelValue
+    );
+    const categories = [...new Set(filtered.map(t => t.category).filter(c => c))].sort();
+
+    const categorySelect = document.getElementById('comparison-category');
+    categorySelect.innerHTML = '<option value="">Select category...</option>';
+    categories.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      categorySelect.appendChild(opt);
+    });
+    categorySelect.disabled = false;
+
+    // Reset dependent dropdowns
+    document.getElementById('comparison-prompt').innerHTML = '<option value="">Select prompt...</option>';
+    document.getElementById('comparison-prompt').disabled = true;
+    document.getElementById('comparison-load-btn').disabled = true;
+
+    return;
+  }
+
+  // Step 3: Category selected - populate prompts
+  if (interfaceValue && modelValue && categoryValue && !promptValue) {
+    COMPARISON_STATE.selectedCategory = categoryValue;
+    const filtered = COMPARISON_STATE.allTranscripts.filter(t =>
+      t.interface === interfaceValue &&
+      t.model === modelValue &&
+      t.category === categoryValue
+    );
+    const prompts = [...new Set(filtered.map(t => t.prompt_id))].sort();
+
+    const promptSelect = document.getElementById('comparison-prompt');
+    promptSelect.innerHTML = '<option value="">Select prompt...</option>';
+    prompts.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p;
+      promptSelect.appendChild(opt);
+    });
+    promptSelect.disabled = false;
+    document.getElementById('comparison-load-btn').disabled = true;
+
+    return;
+  }
+
+  // Step 4: Prompt selected - enable load button
+  if (interfaceValue && modelValue && categoryValue && promptValue) {
+    COMPARISON_STATE.selectedPromptId = promptValue;
+
+    // Find the matching transcript
+    const matchingTranscripts = COMPARISON_STATE.allTranscripts.filter(t =>
+      t.interface === interfaceValue &&
+      t.model === modelValue &&
+      t.category === categoryValue &&
+      t.prompt_id === promptValue
+    );
+
+    if (matchingTranscripts.length > 0) {
+      COMPARISON_STATE.selectedTranscript = matchingTranscripts[0];
+      document.getElementById('comparison-load-btn').disabled = false;
+      document.getElementById('comparison-status').textContent = 'Ready to load';
+    } else {
+      document.getElementById('comparison-status').textContent = 'No matching transcript found';
+      document.getElementById('comparison-load-btn').disabled = true;
+    }
+
+    return;
+  }
+
+  // If user changes a previous selection, cascade reset
+  if (interfaceValue && !modelValue) {
+    cascadeComparisonFilters();
   }
 }
 
 async function loadComparisonData() {
-  const sessionId = document.getElementById('comparison-session').value;
-  if (!sessionId) {
-    document.getElementById('comparison-conversation').style.display = 'none';
-    document.getElementById('comparison-legend').style.display = 'none';
+  if (!COMPARISON_STATE.selectedTranscript) {
+    alert('Please select all filter criteria first');
     return;
   }
 
+  const transcript = COMPARISON_STATE.selectedTranscript;
+  document.getElementById('comparison-status').textContent = 'Loading...';
+
   try {
-    // Fetch transcript
-    const transcriptResponse = await fetch(`${BASE}/api/session/${encodeURIComponent(sessionId)}/transcript`);
-    if (!transcriptResponse.ok) {
-      alert('Failed to load transcript');
-      return;
-    }
-    const transcriptData = await transcriptResponse.json();
-    const transcript = transcriptData.transcript || [];
+    let transcriptData = [];
+    let firstHumanScores = [];
+    let secondHumanScores = [];
+    let llmScores = [];
 
-    // Fetch human scores (incidents)
-    const humanResponse = await fetch(`${BASE}/api/incidents?session_id=${encodeURIComponent(sessionId)}`);
-    if (!humanResponse.ok) {
-      alert('Failed to load human scores');
-      return;
-    }
-    const humanData = await humanResponse.json();
-    const humanScores = humanData.incidents || [];
+    if (transcript.interface === 'chat_ui') {
+      // Load Chat UI session
+      const sessionId = transcript.session_id;
 
-    // Fetch LLM scores
-    const llmResponse = await fetch(`${BASE}/api/scores?session_id=${encodeURIComponent(sessionId)}`);
-    if (!llmResponse.ok) {
-      alert('Failed to load LLM scores');
-      return;
-    }
-    const llmData = await llmResponse.json();
-    const llmScores = llmData.scores || [];
+      // Fetch transcript
+      const transcriptResponse = await fetch(`${BASE}/api/session/${encodeURIComponent(sessionId)}/transcript`);
+      if (!transcriptResponse.ok) {
+        alert('Failed to load transcript');
+        return;
+      }
+      const data = await transcriptResponse.json();
+      transcriptData = data.transcript || [];
 
-    // Display the comparison
-    displayComparison(transcript, humanScores, llmScores);
+      // Fetch first human scores (incidents)
+      const firstHumanResponse = await fetch(`${BASE}/api/incidents?session_id=${encodeURIComponent(sessionId)}`);
+      if (firstHumanResponse.ok) {
+        const data = await firstHumanResponse.json();
+        firstHumanScores = data.incidents || [];
+      }
+
+      // Fetch second human scores
+      const secondHumanResponse = await fetch(`${BASE}/api/second_human_scores?session_id=${encodeURIComponent(sessionId)}`);
+      if (secondHumanResponse.ok) {
+        const data = await secondHumanResponse.json();
+        secondHumanScores = data.scores || [];
+      }
+
+      // Fetch LLM scores
+      const llmResponse = await fetch(`${BASE}/api/scores?session_id=${encodeURIComponent(sessionId)}`);
+      if (llmResponse.ok) {
+        const data = await llmResponse.json();
+        llmScores = data.scores || [];
+      }
+
+    } else if (transcript.interface === 'api') {
+      // Load API transcript
+      const params = new URLSearchParams({
+        model: transcript.model,
+        category: transcript.category,
+        prompt_id: transcript.prompt_id,
+        run_index: transcript.run_index,
+        convo_index: transcript.convo_index
+      });
+
+      // Fetch transcript
+      const transcriptResponse = await fetch(`${BASE}/api/api_transcript?${params}`);
+      if (!transcriptResponse.ok) {
+        alert('Failed to load API transcript');
+        return;
+      }
+      const data = await transcriptResponse.json();
+      transcriptData = data.transcript || [];
+
+      // Fetch first human scores (api_human_scores)
+      const firstHumanResponse = await fetch(`${BASE}/api/api_human_scores?${params}`);
+      if (firstHumanResponse.ok) {
+        const data = await firstHumanResponse.json();
+        firstHumanScores = data.scores || [];
+      }
+
+      // Fetch second human scores (second_api_human_scores)
+      const secondHumanResponse = await fetch(`${BASE}/api/second_api_human_scores?${params}`);
+      if (secondHumanResponse.ok) {
+        const data = await secondHumanResponse.json();
+        secondHumanScores = data.scores || [];
+      }
+
+      // Fetch LLM scores (api_llm_scores)
+      const llmResponse = await fetch(`${BASE}/api/api_llm_scores?${params}`);
+      if (llmResponse.ok) {
+        const data = await llmResponse.json();
+        llmScores = data.scores || [];
+      }
+    }
+
+    // Display the comparison with all three types of grades
+    displayComparison(transcriptData, firstHumanScores, secondHumanScores, llmScores, transcript.interface);
     document.getElementById('comparison-legend').style.display = 'block';
     document.getElementById('comparison-conversation').style.display = 'block';
+    document.getElementById('comparison-status').textContent = `Loaded: ${firstHumanScores.length} first human, ${secondHumanScores.length} second human, ${llmScores.length} LLM grades`;
 
   } catch (error) {
     console.error('Error loading comparison data:', error);
     alert('Error loading comparison data: ' + error.message);
+    document.getElementById('comparison-status').textContent = 'Error loading data';
   }
 }
 
-function displayComparison(transcript, humanScores, llmScores) {
+function displayComparison(transcript, firstHumanScores, secondHumanScores, llmScores, interfaceType) {
   const container = document.getElementById('comparison-conversation');
   container.innerHTML = '';
 
   // Group scores by turn
-  const humanByTurn = {};
-  humanScores.forEach(score => {
-    if (!humanByTurn[score.turn_index]) humanByTurn[score.turn_index] = [];
-    humanByTurn[score.turn_index].push(score);
+  const firstHumanByTurn = {};
+  firstHumanScores.forEach(score => {
+    if (!firstHumanByTurn[score.turn_index]) firstHumanByTurn[score.turn_index] = [];
+    firstHumanByTurn[score.turn_index].push(score);
+  });
+
+  const secondHumanByTurn = {};
+  secondHumanScores.forEach(score => {
+    if (!secondHumanByTurn[score.turn_index]) secondHumanByTurn[score.turn_index] = [];
+    secondHumanByTurn[score.turn_index].push(score);
   });
 
   const llmByTurn = {};
@@ -3668,17 +3827,23 @@ function displayComparison(transcript, humanScores, llmScores) {
 
   // Build pairs of user + assistant turns
   const pairs = [];
+  let apiTurnIndex = 0;
   for (let i = 0; i < transcript.length; i++) {
     const turn = transcript[i];
     if (turn.role === 'assistant') {
       const userTurn = transcript.slice(0, i).reverse().find(t => t.role === 'user');
       if (userTurn) {
+        // For API transcripts, use apiTurnIndex counter; for chat_ui, use turn.turn_index
+        const turnIndex = interfaceType === 'api' ? apiTurnIndex : turn.turn_index;
         pairs.push({
           userTurn: userTurn,
           assistantTurn: turn,
-          humanScores: humanByTurn[turn.turn_index] || [],
-          llmScores: llmByTurn[turn.turn_index] || []
+          turnIndex: turnIndex,
+          firstHumanScores: firstHumanByTurn[turnIndex] || [],
+          secondHumanScores: secondHumanByTurn[turnIndex] || [],
+          llmScores: llmByTurn[turnIndex] || []
         });
+        apiTurnIndex++;
       }
     }
   }
@@ -3694,7 +3859,7 @@ function displayComparison(transcript, humanScores, llmScores) {
 
     // User message
     const userHeader = document.createElement('h4');
-    userHeader.textContent = `User Message (Turn ${pair.userTurn.turn_index})`;
+    userHeader.textContent = `User Message (Turn ${pair.turnIndex})`;
     userHeader.style.marginBottom = '8px';
     turnDiv.appendChild(userHeader);
 
@@ -3708,7 +3873,7 @@ function displayComparison(transcript, humanScores, llmScores) {
 
     // Assistant message with highlights
     const assistantHeader = document.createElement('h4');
-    assistantHeader.textContent = `Assistant Response (Turn ${pair.assistantTurn.turn_index})`;
+    assistantHeader.textContent = `Assistant Response (Turn ${pair.turnIndex})`;
     assistantHeader.style.marginBottom = '8px';
     turnDiv.appendChild(assistantHeader);
 
@@ -3719,7 +3884,8 @@ function displayComparison(transcript, humanScores, llmScores) {
     assistantContent.style.whiteSpace = 'pre-wrap';
     assistantContent.innerHTML = applyComparisonHighlights(
       pair.assistantTurn.content,
-      pair.humanScores,
+      pair.firstHumanScores,
+      pair.secondHumanScores,
       pair.llmScores
     );
     turnDiv.appendChild(assistantContent);
@@ -3728,37 +3894,55 @@ function displayComparison(transcript, humanScores, llmScores) {
     const gradesDiv = document.createElement('div');
     gradesDiv.style.marginTop = '15px';
     gradesDiv.style.display = 'grid';
-    gradesDiv.style.gridTemplateColumns = '1fr 1fr';
+    gradesDiv.style.gridTemplateColumns = '1fr 1fr 1fr';
     gradesDiv.style.gap = '15px';
 
-    // Human grades
-    const humanGradesDiv = document.createElement('div');
-    humanGradesDiv.innerHTML = `<strong style="color: #6495ed;">Human Grades (${pair.humanScores.length}):</strong>`;
-    if (pair.humanScores.length > 0) {
-      const humanList = document.createElement('ul');
-      humanList.style.marginTop = '8px';
-      humanList.style.fontSize = '13px';
-      pair.humanScores.forEach(score => {
+    // First human grades
+    const firstHumanGradesDiv = document.createElement('div');
+    firstHumanGradesDiv.innerHTML = `<strong style="color: #6495ed;">First Human (${pair.firstHumanScores.length}):</strong>`;
+    if (pair.firstHumanScores.length > 0) {
+      const firstHumanList = document.createElement('ul');
+      firstHumanList.style.marginTop = '8px';
+      firstHumanList.style.fontSize = '13px';
+      pair.firstHumanScores.forEach(score => {
         const li = document.createElement('li');
-        li.innerHTML = `<strong>${score.label}</strong> (strength: ${score.strength})<br><span style="color: #666; font-size: 12px;">"${score.snippet}"</span>`;
-        humanList.appendChild(li);
+        li.innerHTML = `<strong>${score.label}</strong> (s:${score.strength})<br><span style="color: #666; font-size: 11px;">"${(score.snippet || '').substring(0, 50)}${(score.snippet || '').length > 50 ? '...' : ''}"</span>`;
+        firstHumanList.appendChild(li);
       });
-      humanGradesDiv.appendChild(humanList);
+      firstHumanGradesDiv.appendChild(firstHumanList);
     } else {
-      humanGradesDiv.innerHTML += '<p class="small" style="color: #999; margin-top: 5px;">No annotations</p>';
+      firstHumanGradesDiv.innerHTML += '<p class="small" style="color: #999; margin-top: 5px;">No annotations</p>';
     }
-    gradesDiv.appendChild(humanGradesDiv);
+    gradesDiv.appendChild(firstHumanGradesDiv);
+
+    // Second human grades
+    const secondHumanGradesDiv = document.createElement('div');
+    secondHumanGradesDiv.innerHTML = `<strong style="color: #2ecc71;">Second Human (${pair.secondHumanScores.length}):</strong>`;
+    if (pair.secondHumanScores.length > 0) {
+      const secondHumanList = document.createElement('ul');
+      secondHumanList.style.marginTop = '8px';
+      secondHumanList.style.fontSize = '13px';
+      pair.secondHumanScores.forEach(score => {
+        const li = document.createElement('li');
+        li.innerHTML = `<strong>${score.label}</strong> (s:${score.strength})<br><span style="color: #666; font-size: 11px;">"${(score.snippet || '').substring(0, 50)}${(score.snippet || '').length > 50 ? '...' : ''}"</span>`;
+        secondHumanList.appendChild(li);
+      });
+      secondHumanGradesDiv.appendChild(secondHumanList);
+    } else {
+      secondHumanGradesDiv.innerHTML += '<p class="small" style="color: #999; margin-top: 5px;">No annotations</p>';
+    }
+    gradesDiv.appendChild(secondHumanGradesDiv);
 
     // LLM grades
     const llmGradesDiv = document.createElement('div');
-    llmGradesDiv.innerHTML = `<strong style="color: #ff8c00;">LLM Grades (${pair.llmScores.length}):</strong>`;
+    llmGradesDiv.innerHTML = `<strong style="color: #ff8c00;">LLM (${pair.llmScores.length}):</strong>`;
     if (pair.llmScores.length > 0) {
       const llmList = document.createElement('ul');
       llmList.style.marginTop = '8px';
       llmList.style.fontSize = '13px';
       pair.llmScores.forEach(score => {
         const li = document.createElement('li');
-        li.innerHTML = `<strong>${score.label}</strong> (strength: ${score.strength})<br><span style="color: #666; font-size: 12px;">"${score.snippet}"</span>`;
+        li.innerHTML = `<strong>${score.label}</strong> (s:${score.strength})<br><span style="color: #666; font-size: 11px;">"${(score.snippet || '').substring(0, 50)}${(score.snippet || '').length > 50 ? '...' : ''}"</span>`;
         llmList.appendChild(li);
       });
       llmGradesDiv.appendChild(llmList);
@@ -3772,30 +3956,54 @@ function displayComparison(transcript, humanScores, llmScores) {
   });
 }
 
-function applyComparisonHighlights(text, humanScores, llmScores) {
-  // Create a map of character positions to highlight types
-  const highlightMap = new Array(text.length).fill(null);
+function applyComparisonHighlights(text, firstHumanScores, secondHumanScores, llmScores) {
+  // Create a map of character positions to track which graders marked each position
+  // Using a Set to track combinations: 'first', 'second', 'llm'
+  const highlightMap = new Array(text.length).fill(null).map(() => new Set());
 
-  // Mark human scores
-  humanScores.forEach(score => {
+  // Mark first human scores
+  firstHumanScores.forEach(score => {
     for (let i = score.start_char; i < score.end_char && i < text.length; i++) {
-      if (highlightMap[i] === null) {
-        highlightMap[i] = 'human';
-      } else if (highlightMap[i] === 'llm') {
-        highlightMap[i] = 'both';
-      }
+      highlightMap[i].add('first');
+    }
+  });
+
+  // Mark second human scores
+  secondHumanScores.forEach(score => {
+    for (let i = score.start_char; i < score.end_char && i < text.length; i++) {
+      highlightMap[i].add('second');
     }
   });
 
   // Mark LLM scores
   llmScores.forEach(score => {
     for (let i = score.start_char; i < score.end_char && i < text.length; i++) {
-      if (highlightMap[i] === null) {
-        highlightMap[i] = 'llm';
-      } else if (highlightMap[i] === 'human') {
-        highlightMap[i] = 'both';
-      }
+      highlightMap[i].add('llm');
     }
+  });
+
+  // Convert sets to highlight type strings
+  const typeMap = highlightMap.map(set => {
+    if (set.size === 0) return null;
+    if (set.size === 3) return 'all-three';
+
+    const hasFirst = set.has('first');
+    const hasSecond = set.has('second');
+    const hasLlm = set.has('llm');
+
+    if (set.size === 2) {
+      if (hasFirst && hasSecond) return 'first-second';
+      if (hasFirst && hasLlm) return 'first-llm';
+      if (hasSecond && hasLlm) return 'second-llm';
+    }
+
+    if (set.size === 1) {
+      if (hasFirst) return 'first-human';
+      if (hasSecond) return 'second-human';
+      if (hasLlm) return 'llm';
+    }
+
+    return null;
   });
 
   // Build highlighted HTML
@@ -3805,7 +4013,7 @@ function applyComparisonHighlights(text, humanScores, llmScores) {
 
   for (let i = 0; i < text.length; i++) {
     const char = text[i];
-    const type = highlightMap[i];
+    const type = typeMap[i];
 
     if (type !== currentType) {
       // Flush current segment

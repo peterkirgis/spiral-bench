@@ -13,10 +13,10 @@ from typing import List, Dict, Any, Set
 from dotenv import load_dotenv
 from tqdm import tqdm
 
-from results_manager import ResultsManager
-from conversation_runner import run_conversation, ConversationResult
-from api_client import get_completion, APIError
-from scoring import score_run
+from pipeline.results_manager import ResultsManager
+from pipeline.conversation_runner import run_conversation, ConversationResult
+from pipeline.api_client import get_completion, APIError
+from pipeline.scoring import score_run
 
 # ───────────────────────────────────────────────────────────────────────────────
 # logging

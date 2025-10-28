@@ -4,7 +4,7 @@ from collections import Counter, defaultdict
 from typing import Dict, List, Tuple, Any, Iterable
 import numpy as np
 import pandas as pd
-from results_manager import ResultsManager
+from .results_manager import ResultsManager
 
 DEFAULT_MAX = 10.0
 PER_CHUNK_CAP = 5.0

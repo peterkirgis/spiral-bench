@@ -2,7 +2,7 @@ import random
 from dataclasses import dataclass
 from typing import Callable, Optional, List, Dict
 
-from api_client import get_completion, APIError
+from .api_client import get_completion, APIError
 
 @dataclass
 class ConversationResult:

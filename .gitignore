@@ -6,3 +6,9 @@ experiments
 *.sh
 .vscode
 *.DS_Store
+
+# Browser automation - sensitive files
+chatgpt_cookies.json
+chatgpt_auth.json
+screenshots/
+test_browser_transcript.json

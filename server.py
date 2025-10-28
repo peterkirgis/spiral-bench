@@ -161,6 +161,26 @@ def init_db():
             """)
             cur.execute("""CREATE INDEX IF NOT EXISTS second_api_human_scores_idx ON second_api_human_scores(model, category, prompt_id, run_index, convo_index, turn_index)""")
 
+            # API LLM scores (LLM-generated grades for API transcripts)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS api_llm_scores(
+                    id SERIAL PRIMARY KEY,
+                    model TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    prompt_id TEXT NOT NULL,
+                    run_index INTEGER NOT NULL,
+                    convo_index INTEGER NOT NULL,
+                    turn_index INTEGER NOT NULL,
+                    label TEXT NOT NULL,
+                    strength INTEGER NOT NULL CHECK (strength BETWEEN 1 AND 3),
+                    start_char INTEGER NOT NULL,
+                    end_char INTEGER NOT NULL,
+                    snippet TEXT NOT NULL,
+                    created_at DOUBLE PRECISION
+                )
+            """)
+            cur.execute("""CREATE INDEX IF NOT EXISTS api_llm_scores_idx ON api_llm_scores(model, category, prompt_id, run_index, convo_index, turn_index)""")
+
             # Task assignments for RAs
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS task_assignments(
@@ -886,6 +906,26 @@ def create_second_api_human_score(score: SecondAPIHumanScore):
 def delete_second_api_human_score(score_id: int):
     query("DELETE FROM second_api_human_scores WHERE id=%s", (score_id,))
     return {"ok": True}
+
+# ────────────────────────────── API LLM Scores ───────────────────────────
+
+@app.get("/api/api_llm_scores")
+def list_api_llm_scores(model: str, category: str, prompt_id: str, run_index: int, convo_index: int, turn_index: int = None):
+    if turn_index is not None:
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index
+                        FROM api_llm_scores
+                        WHERE model=%s AND category=%s AND prompt_id=%s
+                        AND run_index=%s AND convo_index=%s AND turn_index=%s
+                        ORDER BY start_char ASC, end_char ASC""",
+                     (model, category, prompt_id, run_index, convo_index, turn_index), fetch=True)
+    else:
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index
+                        FROM api_llm_scores
+                        WHERE model=%s AND category=%s AND prompt_id=%s
+                        AND run_index=%s AND convo_index=%s
+                        ORDER BY turn_index ASC, start_char ASC, end_char ASC""",
+                     (model, category, prompt_id, run_index, convo_index), fetch=True)
+    return {"scores": rows}
 
 # ────────────────────────────── Canonical Text Endpoints ───────────────────────────
 

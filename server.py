@@ -591,12 +591,34 @@ class SecondHumanScore(BaseModel):
     end_char: int
 
 @app.get("/api/second_human_scores")
-def list_second_human_scores(session_id: str, turn_index: int):
-    rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at
-                    FROM second_human_scores
-                    WHERE session_id=%s AND turn_index=%s
-                    ORDER BY start_char ASC, end_char ASC""",
-                 (session_id, turn_index), fetch=True)
+def list_second_human_scores(session_id: str = None, turn_index: int = None):
+    if session_id is not None and turn_index is not None:
+        # Filter by both session_id and turn_index
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index,session_id
+                        FROM second_human_scores
+                        WHERE session_id=%s AND turn_index=%s
+                        ORDER BY start_char ASC, end_char ASC""",
+                     (session_id, turn_index), fetch=True)
+    elif session_id is not None:
+        # Filter by session_id only
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index,session_id
+                        FROM second_human_scores
+                        WHERE session_id=%s
+                        ORDER BY turn_index ASC, start_char ASC, end_char ASC""",
+                     (session_id,), fetch=True)
+    elif turn_index is not None:
+        # Filter by turn_index only (across all sessions)
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index,session_id
+                        FROM second_human_scores
+                        WHERE turn_index=%s
+                        ORDER BY session_id ASC, start_char ASC, end_char ASC""",
+                     (turn_index,), fetch=True)
+    else:
+        # No filters - return all scores
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index,session_id
+                        FROM second_human_scores
+                        ORDER BY session_id ASC, turn_index ASC, start_char ASC, end_char ASC""",
+                     (), fetch=True)
     return {"scores": rows}
 
 @app.post("/api/second_human_scores")
@@ -716,13 +738,21 @@ def get_api_transcript(model: str, category: str, prompt_id: str, run_index: int
         raise HTTPException(500, f"Error loading transcript: {str(e)}")
 
 @app.get("/api/api_human_scores")
-def list_api_human_scores(model: str, category: str, prompt_id: str, run_index: int, convo_index: int, turn_index: int):
-    rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at
-                    FROM api_human_scores
-                    WHERE model=%s AND category=%s AND prompt_id=%s
-                    AND run_index=%s AND convo_index=%s AND turn_index=%s
-                    ORDER BY start_char ASC, end_char ASC""",
-                 (model, category, prompt_id, run_index, convo_index, turn_index), fetch=True)
+def list_api_human_scores(model: str, category: str, prompt_id: str, run_index: int, convo_index: int, turn_index: int = None):
+    if turn_index is not None:
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index
+                        FROM api_human_scores
+                        WHERE model=%s AND category=%s AND prompt_id=%s
+                        AND run_index=%s AND convo_index=%s AND turn_index=%s
+                        ORDER BY start_char ASC, end_char ASC""",
+                     (model, category, prompt_id, run_index, convo_index, turn_index), fetch=True)
+    else:
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index
+                        FROM api_human_scores
+                        WHERE model=%s AND category=%s AND prompt_id=%s
+                        AND run_index=%s AND convo_index=%s
+                        ORDER BY turn_index ASC, start_char ASC, end_char ASC""",
+                     (model, category, prompt_id, run_index, convo_index), fetch=True)
     return {"scores": rows}
 
 @app.post("/api/api_human_scores")
@@ -782,13 +812,21 @@ class SecondAPIHumanScore(BaseModel):
     content_sha256: str
 
 @app.get("/api/second_api_human_scores")
-def list_second_api_human_scores(model: str, category: str, prompt_id: str, run_index: int, convo_index: int, turn_index: int):
-    rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at
-                    FROM second_api_human_scores
-                    WHERE model=%s AND category=%s AND prompt_id=%s
-                    AND run_index=%s AND convo_index=%s AND turn_index=%s
-                    ORDER BY start_char ASC, end_char ASC""",
-                 (model, category, prompt_id, run_index, convo_index, turn_index), fetch=True)
+def list_second_api_human_scores(model: str, category: str, prompt_id: str, run_index: int, convo_index: int, turn_index: int = None):
+    if turn_index is not None:
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index
+                        FROM second_api_human_scores
+                        WHERE model=%s AND category=%s AND prompt_id=%s
+                        AND run_index=%s AND convo_index=%s AND turn_index=%s
+                        ORDER BY start_char ASC, end_char ASC""",
+                     (model, category, prompt_id, run_index, convo_index, turn_index), fetch=True)
+    else:
+        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index
+                        FROM second_api_human_scores
+                        WHERE model=%s AND category=%s AND prompt_id=%s
+                        AND run_index=%s AND convo_index=%s
+                        ORDER BY turn_index ASC, start_char ASC, end_char ASC""",
+                     (model, category, prompt_id, run_index, convo_index), fetch=True)
     return {"scores": rows}
 
 @app.post("/api/second_api_human_scores")

@@ -3734,8 +3734,8 @@ async function loadComparisonData() {
         firstHumanScores = data.incidents || [];
       }
 
-      // Fetch second human scores
-      const secondHumanResponse = await fetch(`${BASE}/api/second_human_scores?session_id=${encodeURIComponent(sessionId)}`);
+      // Fetch second human scores (fetch all scores, not filtered by session_id)
+      const secondHumanResponse = await fetch(`${BASE}/api/second_human_scores`);
       if (secondHumanResponse.ok) {
         const data = await secondHumanResponse.json();
         secondHumanScores = data.scores || [];

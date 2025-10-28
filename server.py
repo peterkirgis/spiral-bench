@@ -591,34 +591,52 @@ class SecondHumanScore(BaseModel):
     end_char: int
 
 @app.get("/api/second_human_scores")
-def list_second_human_scores(session_id: str = None, turn_index: int = None):
-    if session_id is not None and turn_index is not None:
-        # Filter by both session_id and turn_index
-        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index,session_id
-                        FROM second_human_scores
-                        WHERE session_id=%s AND turn_index=%s
-                        ORDER BY start_char ASC, end_char ASC""",
-                     (session_id, turn_index), fetch=True)
-    elif session_id is not None:
-        # Filter by session_id only
-        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index,session_id
-                        FROM second_human_scores
-                        WHERE session_id=%s
-                        ORDER BY turn_index ASC, start_char ASC, end_char ASC""",
-                     (session_id,), fetch=True)
-    elif turn_index is not None:
-        # Filter by turn_index only (across all sessions)
-        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index,session_id
-                        FROM second_human_scores
-                        WHERE turn_index=%s
-                        ORDER BY session_id ASC, start_char ASC, end_char ASC""",
-                     (turn_index,), fetch=True)
+def list_second_human_scores(session_id: str = None, turn_index: int = None, model: str = None, category: str = None, prompt_id: str = None):
+    # Build the base query with optional JOIN to sessions table for filtering
+    base_select = """SELECT shs.id, shs.label, shs.strength, shs.start_char, shs.end_char,
+                            shs.snippet, shs.created_at, shs.turn_index, shs.session_id"""
+
+    # Determine if we need to join with sessions table
+    need_join = model is not None or prompt_id is not None
+
+    if need_join:
+        from_clause = """FROM second_human_scores shs
+                         JOIN sessions s ON shs.session_id = s.session_id"""
     else:
-        # No filters - return all scores
-        rows = query("""SELECT id,label,strength,start_char,end_char,snippet,created_at,turn_index,session_id
-                        FROM second_human_scores
-                        ORDER BY session_id ASC, turn_index ASC, start_char ASC, end_char ASC""",
-                     (), fetch=True)
+        from_clause = """FROM second_human_scores shs"""
+
+    where_conditions = []
+    params = []
+
+    # Add filter conditions
+    if session_id is not None:
+        where_conditions.append("shs.session_id=%s")
+        params.append(session_id)
+
+    if turn_index is not None:
+        where_conditions.append("shs.turn_index=%s")
+        params.append(turn_index)
+
+    if model is not None:
+        where_conditions.append("s.evaluated_model=%s")
+        params.append(model)
+
+    if prompt_id is not None:
+        where_conditions.append("s.scenario_id=%s")
+        params.append(prompt_id)
+
+    # Build WHERE clause
+    where_clause = ""
+    if where_conditions:
+        where_clause = "WHERE " + " AND ".join(where_conditions)
+
+    # Build ORDER BY
+    order_by = "ORDER BY shs.session_id ASC, shs.turn_index ASC, shs.start_char ASC, shs.end_char ASC"
+
+    # Construct final query
+    sql = f"{base_select} {from_clause} {where_clause} {order_by}"
+
+    rows = query(sql, tuple(params), fetch=True)
     return {"scores": rows}
 
 @app.post("/api/second_human_scores")

@@ -3734,8 +3734,12 @@ async function loadComparisonData() {
         firstHumanScores = data.incidents || [];
       }
 
-      // Fetch second human scores (fetch all scores, not filtered by session_id)
-      const secondHumanResponse = await fetch(`${BASE}/api/second_human_scores`);
+      // Fetch second human scores (filtered by model and prompt_id to get scores for this category/prompt)
+      const secondHumanParams = new URLSearchParams({
+        model: transcript.model,
+        prompt_id: transcript.prompt_id
+      });
+      const secondHumanResponse = await fetch(`${BASE}/api/second_human_scores?${secondHumanParams}`);
       if (secondHumanResponse.ok) {
         const data = await secondHumanResponse.json();
         secondHumanScores = data.scores || [];

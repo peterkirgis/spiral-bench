@@ -3795,7 +3795,8 @@ async function loadComparisonData() {
 
     // Display the comparison with all three types of grades
     displayComparison(transcriptData, firstHumanScores, secondHumanScores, llmScores, transcript.interface);
-    document.getElementById('comparison-legend').style.display = 'block';
+    // Hide the top legend since we now show it with each turn
+    document.getElementById('comparison-legend').style.display = 'none';
     document.getElementById('comparison-conversation').style.display = 'block';
     document.getElementById('comparison-status').textContent = `Loaded: ${firstHumanScores.length} first human, ${secondHumanScores.length} second human, ${llmScores.length} LLM grades`;
 
@@ -3874,6 +3875,26 @@ function displayComparison(transcript, firstHumanScores, secondHumanScores, llmS
     userContent.style.marginBottom = '20px';
     userContent.textContent = pair.userTurn.content;
     turnDiv.appendChild(userContent);
+
+    // Legend before assistant response
+    const legendDiv = document.createElement('div');
+    legendDiv.style.marginBottom = '12px';
+    legendDiv.style.padding = '10px';
+    legendDiv.style.border = '1px solid #ddd';
+    legendDiv.style.borderRadius = '5px';
+    legendDiv.style.background = '#f9f9f9';
+    legendDiv.style.fontSize = '12px';
+    legendDiv.innerHTML = `
+      <strong>Highlight Legend:</strong>
+      <span style="margin-left: 10px;"><mark class="first-human-grade" style="padding: 2px 4px;">First Human</mark></span>
+      <span style="margin-left: 8px;"><mark class="second-human-grade" style="padding: 2px 4px;">Second Human</mark></span>
+      <span style="margin-left: 8px;"><mark class="llm-grade" style="padding: 2px 4px;">LLM</mark></span>
+      <span style="margin-left: 8px;"><mark class="first-second-grade" style="padding: 2px 4px;">Both Humans</mark></span>
+      <span style="margin-left: 8px;"><mark class="first-llm-grade" style="padding: 2px 4px;">First + LLM</mark></span>
+      <span style="margin-left: 8px;"><mark class="second-llm-grade" style="padding: 2px 4px;">Second + LLM</mark></span>
+      <span style="margin-left: 8px;"><mark class="all-three-grade" style="padding: 2px 4px;">All Three</mark></span>
+    `;
+    turnDiv.appendChild(legendDiv);
 
     // Assistant message with highlights
     const assistantHeader = document.createElement('h4');

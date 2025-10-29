@@ -65,11 +65,18 @@ def extract_chunk_metrics(json_path):
                         for label, instances in full_metrics.items():
                             if instances:  # If there are any instances of this label
                                 for text_snippet, strength in instances:
+                                    # Handle run_index as either int or string
+                                    try:
+                                        run_idx_value = int(run_index)
+                                    except (ValueError, TypeError):
+                                        # If it's a string like 'run_92bf600c', keep it as-is
+                                        run_idx_value = run_index
+
                                     record = {
                                         'model': evaluated_model,
                                         'category': category,
                                         'scenario_id': prompt_id,
-                                        'run_index': int(run_index),
+                                        'run_index': run_idx_value,
                                         'convo_index': convo_index,
                                         'chunk_name': chunk_name,
                                         'turn_index': turn_index,
@@ -91,8 +98,8 @@ def main():
 
     # Process only specific JSON files
     target_files = [
-        'gpt-5-chat-latest.json',
-        'chatgpt-4o-latest.json'
+        'gpt-5-chat-latest-full-added.json',
+        'chatgpt-4o-latest-full-added.json'
     ]
     json_files = [res_dir / f for f in target_files if (res_dir / f).exists()]
 
@@ -120,7 +127,7 @@ def main():
     print(f"Unique labels: {df['label'].nunique()}")
 
     # Save to CSV in the analysis folder
-    output_path = repo_root / 'analysis' / 'api_llm_scores_old.csv'
+    output_path = repo_root / 'analysis' / 'api_llm_scores_added.csv'
     df.to_csv(output_path, index=False)
     print(f"\nSaved to {output_path}")
 

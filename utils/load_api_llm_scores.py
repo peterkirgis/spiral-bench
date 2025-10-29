@@ -298,7 +298,7 @@ if __name__ == "__main__":
     # Get repository root
     script_dir = Path(__file__).parent
     repo_root = script_dir.parent
-    default_csv = repo_root / "analysis" / "api_llm_scores.csv"
+    default_csv = repo_root / "analysis" / "api_llm_scores_full.csv"
 
     parser = argparse.ArgumentParser(description='Load API LLM scores from CSV into database')
     parser.add_argument('--limit', type=int, default=None,

@@ -6,6 +6,7 @@ experiments
 *.sh
 .vscode
 *.DS_Store
+scratch/
 
 # Browser automation - sensitive files
 chatgpt_cookies.json

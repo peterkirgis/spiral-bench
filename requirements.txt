@@ -5,4 +5,5 @@ openai>=1.40
 anthropic>=0.30
 pydantic>=2.6
 psycopg2-binary
-requests
+requestsnumpy
+pandas

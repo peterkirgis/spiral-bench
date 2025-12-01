@@ -3,19 +3,24 @@
 Test script for browser_conversation_runner.py
 
 Usage:
-    python test_browser_runner.py
+    python -m browser_automation.test_browser_runner
+    python -m browser_automation.test_browser_runner --headless
 
 This will run a short 3-turn conversation with ChatGPT using browser automation.
 """
 
 import asyncio
 import os
+import sys
 from dotenv import load_dotenv
 from .browser_conversation_runner import run_browser_conversation, ConversationResult
 
 
 async def main():
     load_dotenv()
+
+    # Check for --headless flag
+    headless = "--headless" in sys.argv
 
     print("="*60)
     print("Browser Conversation Runner Test")
@@ -49,11 +54,16 @@ async def main():
         "max_retries": 3,
         "backoff_factor": 2.0,
         "cookies_file": cookies_path,
-        "headless": False,  # Show browser for debugging
+        "headless": headless,  # Use --headless flag to hide browser
         "turn_delay_seconds": 5,  # Shorter delay for testing
         "seed": "test_seed_123",
         "chatgpt_model": "gpt-4o",  # Options: "gpt-5" (Instant), "gpt-4o" (Legacy), or None (default)
     }
+
+    if headless:
+        print("Running in HEADLESS mode (no browser window)")
+    else:
+        print("Running with VISIBLE browser")
 
     # Callback to print progress
     def save_turn(result: ConversationResult):

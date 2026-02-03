@@ -20,16 +20,68 @@ This folder contains browser automation scripts for running conversations with C
 2. Get your ChatGPT cookies:
    - Log into ChatGPT in your browser
    - Open Developer Tools (F12)
-   - Go to Application > Cookies
-   - Export cookies to `chatgpt_cookies.json`
+   - Go to Application > Cookies > https://chatgpt.com
+   - Export all cookies to `browser_automation/chatgpt_cookies.json`
+   - You can use a browser extension like "EditThisCookie" or "Cookie-Editor"
+
+3. **Calibrate ChatGPT UI (REQUIRED):**
+   ```bash
+   python -m browser_automation.calibrate_chatgpt
+   ```
+
+   **How it works:**
+   - Browser opens → ChatGPT loads
+   - Script tells you what to hover over
+   - You hover and hold still for 3 seconds
+   - Position auto-captures
+   - Repeat for 4 elements
+
+   **What you'll record:**
+   1. Dropdown button
+   2. "Legacy models" row
+   3. "GPT-5 Instant" (in submenu)
+   4. "GPT-4o" (in submenu)
+
+   **Important:** Just hover - don't click or press keys!
+
+   **Run once per computer.**
 
 ## Usage
 
-### Running the test from root directory:
+### Running the basic test:
 
 ```bash
 python -m browser_automation.test_browser_runner
 ```
+
+### Cycling through multiple models:
+
+Test multiple ChatGPT models automatically:
+
+```bash
+# Test both GPT-5 and GPT-4o with default settings
+python -m browser_automation.cycle_models_test --models gpt-5 gpt-4o
+
+# Custom configuration
+python -m browser_automation.cycle_models_test \
+  --models gpt-5 gpt-4o \
+  --turns 5 \
+  --prompt "Explain black holes in simple terms" \
+  --delay 10 \
+  --output-dir results/model_comparison
+
+# Run in headless mode (no browser window)
+python -m browser_automation.cycle_models_test --models gpt-5 gpt-4o --headless
+```
+
+**Available options:**
+- `--models` - Models to test (e.g., gpt-5, gpt-4o, instant)
+- `--turns` - Number of conversation turns per model (default: 3)
+- `--prompt` - Initial prompt to send (default: quantum entanglement question)
+- `--delay` - Delay between turns in seconds (default: 5)
+- `--headless` - Run browser in headless mode
+- `--output-dir` - Directory to save results (default: browser_automation/model_test_results)
+- `--cookies` - Path to cookies file (default: browser_automation/chatgpt_cookies.json)
 
 ### Using in your own code:
 

@@ -111,15 +111,21 @@ class ChatGPTBrowserClient:
 
         self.page = await context.new_page()
 
-        # Navigate to ChatGPT
         print("Navigating to ChatGPT...")
-        try:
-            await self.page.goto('https://chatgpt.com', wait_until='networkidle', timeout=30000)
-        except PlaywrightTimeoutError:
-            # If networkidle times out, try with less strict condition
-            print("  Networkidle timeout, retrying with domcontentloaded...")
-            await self.page.goto('https://chatgpt.com', wait_until='domcontentloaded', timeout=30000)
-        await asyncio.sleep(2)
+        await self.page.goto(
+            "https://chatgpt.com",
+            wait_until="domcontentloaded",   # ← FIX
+            timeout=60000
+        )
+
+        # Hard wait to smooth out hydration
+        await asyncio.sleep(3)
+
+        # Now wait specifically for the UI to load
+        await self.page.wait_for_selector('#prompt-textarea', timeout=30000)
+
+        print("✓ ChatGPT loaded and UI ready")
+
 
         # Verify we're logged in
         try:
@@ -141,21 +147,93 @@ class ChatGPTBrowserClient:
 
     async def select_model(self, model: str):
         """
-        Prompt user to manually select a ChatGPT model before starting conversation.
+        Select a ChatGPT model using calibrated mouse coordinates.
+        Handles both main menu models and Legacy submenu models.
 
         Args:
-            model: Model to select. Options:
-                - "gpt-5" - User should select "Instant" model
-                - "gpt-4o" - User should select GPT-4o from Legacy models
-                - None or "default" - Skip model selection (use default)
+            model: Model to select (gpt-5, gpt-4o, instant, gpt5-thinking)
         """
         if not model or model.lower() == "default":
             print("Using default model (no manual selection required)")
             return
 
-        # Map to user-friendly model names
+        print(f"Selecting model: {model}")
+
+        # Load calibration data
+        import os
+        import json
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        calibration_file = os.path.join(script_dir, "chatgpt_calibration.json")
+
+        if not os.path.exists(calibration_file):
+            print(f"✗ Calibration file not found: {calibration_file}")
+            print("Please run calibration first:")
+            print("  python -m browser_automation.calibrate_chatgpt")
+            raise Exception("Missing calibration file")
+
+        with open(calibration_file, 'r') as f:
+            calibration = json.load(f)
+
+        # Map model names to calibration keys and determine if Legacy submenu is needed
+        model_map = {
+            "gpt-5": ("gpt5_instant", True),      # (calibration_key, needs_legacy_hover)
+            "instant": ("instant_main", False),    # Main menu instant (if available)
+            "gpt-5-instant": ("gpt5_instant", True),
+            "gpt-4o": ("gpt4o", True),
+            "gpt-5-thinking": ("gpt5_thinking", True),
+        }
+
+        if model.lower() not in model_map:
+            print(f"✗ Unknown model: {model}")
+            print(f"Available models: {list(model_map.keys())}")
+            raise Exception(f"Unknown model: {model}")
+
+        model_key, needs_legacy_hover = model_map[model.lower()]
+
+        if model_key not in calibration["clicks"]:
+            print(f"✗ Model '{model}' not calibrated")
+            print(f"Available in calibration: {list(calibration['clicks'].keys())}")
+            print("Please re-run calibration to add this model:")
+            print("  python -m browser_automation.calibrate_chatgpt")
+            raise Exception(f"Model not calibrated: {model}")
+
+        # Step 1: Click model dropdown button
+        dropdown_coords = calibration["clicks"]["model_dropdown"]
+        print(f"  1. Opening dropdown at ({dropdown_coords['x']}, {dropdown_coords['y']})")
+        await self.page.mouse.click(dropdown_coords['x'], dropdown_coords['y'])
+        await asyncio.sleep(2)  # Wait for dropdown animation
+
+        # Step 2: If model is in Legacy submenu, hover over Legacy models first
+        if needs_legacy_hover:
+            if "legacy_models_hover" not in calibration.get("hovers", {}):
+                print(f"✗ Legacy models hover position not calibrated")
+                print("Please re-run calibration to record Legacy submenu:")
+                print("  python -m browser_automation.calibrate_chatgpt")
+                raise Exception("Legacy hover position not calibrated")
+
+            legacy_hover = calibration["hovers"]["legacy_models_hover"]
+            print(f"  2. Hovering over Legacy models at ({legacy_hover['x']}, {legacy_hover['y']})")
+            await self.page.mouse.move(legacy_hover['x'], legacy_hover['y'])
+            await asyncio.sleep(1.5)  # Wait for submenu to appear
+
+        # Step 3: Click the model option
+        model_coords = calibration["clicks"][model_key]
+        step_num = 3 if needs_legacy_hover else 2
+        print(f"  {step_num}. Clicking {model} at ({model_coords['x']}, {model_coords['y']})")
+        await self.page.mouse.click(model_coords['x'], model_coords['y'])
+        await asyncio.sleep(1.5)  # Wait for selection to register
+
+        print(f"✓ Model selected: {model}")
+
+
+    async def _manual_model_selection(self, model: str):
+        """
+        Fallback manual model selection when automation fails.
+        """
         model_instructions = {
-            "gpt-5": "GPT-5 (Instant)",
+            "gpt-5": "GPT-5 Instant (from Legacy models dropdown)",
+            "instant": "GPT-5 Instant (from Legacy models dropdown)",
             "gpt-4o": "GPT-4o (from Legacy models dropdown)"
         }
 
@@ -166,12 +244,9 @@ class ChatGPTBrowserClient:
         print("="*70)
         print(f"Please manually select the model: {model_name}")
         print("Steps:")
-        print("  1. Click the model dropdown button at the top of the page")
-        if model.lower() == "gpt-4o":
-            print("  2. Click 'Legacy models'")
-            print("  3. Select 'GPT-4o'")
-        elif model.lower() == "gpt-5":
-            print("  2. Select 'Instant'")
+        print("  1. Click the 'ChatGPT' dropdown button at the top of the page")
+        print("  2. Click 'Legacy models'")
+        print(f"  3. Select '{model_name}'")
         print("\nOnce you've selected the model, press ENTER to continue...")
         print("="*70 + "\n")
 
